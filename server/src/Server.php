@@ -283,6 +283,53 @@ final class Server {
         }
         self::output(['actions'=>$actions,'timestamp'=>time()]);
     }
+    private function presence(int $uid, ?string $instance, string $method): never {
+        if (($method!=='GET' || $instance!==null) && ($method!=='POST' || $instance===null)) { throw new HttpError(405,'Method not allowed.'); }
+        $directory=$this->config['presence_path'] ?? dirname($this->config['session_path']).'/presence';
+        if (!is_dir($directory) && !@mkdir($directory,0700,true) && !is_dir($directory)) { throw new HttpError(503,'Live status storage is not writable.'); }
+        $now=time(); $files=[];
+        foreach (glob($directory.'/'.$uid.'-*.json') ?: [] as $file) {
+            if ((int)@filemtime($file)<$now-86400) { @unlink($file); } else { $files[]=$file; }
+        }
+        if ($method==='GET') {
+            $players=[];
+            foreach ($files as $file) {
+                $status=json_decode((string)@file_get_contents($file),true);
+                if (!is_array($status)) { continue; }
+                $status['live']=$now-(int)$status['updated_at']<=90;
+                $players[]=$status;
+            }
+            usort($players,static fn($a,$b)=>$b['updated_at']<=>$a['updated_at']);
+            self::output(['protocol'=>'vonpresence-v1','server_time'=>$now,'expires_after'=>90,'players'=>$players]);
+        }
+        self::identifier($instance,96);
+        $body=$this->jsonBody();
+        if (!is_array($body) || !in_array($body['state']??null,['playing','paused','stopped'],true)) { throw new HttpError(400,'Invalid playback status.'); }
+        $status=['instance'=>$instance,'state'=>$body['state'],'updated_at'=>$now];
+        foreach (['device'=>128,'client'=>64,'caption'=>255] as $key=>$max) {
+            $value=$body[$key]??'';
+            if (!is_string($value) || strlen($value)>$max || preg_match('/[\x00-\x1f]/',$value)) { throw new HttpError(400,'Invalid player description.'); }
+            $status[$key]=$value;
+        }
+        foreach (['position','duration'] as $key) {
+            $value=$body[$key]??0;
+            if (!is_int($value) || $value<0 || $value>2147483647) { throw new HttpError(400,'Invalid player position.'); }
+            $status[$key]=$value;
+        }
+        $item=$body['item']??null;
+        if ($item!==null) { $status['item']=self::normalizeQueue([$item])[0]; }
+        else { $status['item']=null; }
+        if ($status['state']!=='stopped' && $status['item']===null) { throw new HttpError(400,'A playing or paused player needs an episode.'); }
+        $file=$directory.'/'.$uid.'-'.$instance.'.json';
+        if (!is_file($file) && count($files)>=100) { throw new HttpError(429,'Too many recent players for this account.'); }
+        $temp=tempnam($directory,'.presence-');
+        if ($temp===false) { throw new HttpError(503,'Live status storage is not writable.'); }
+        try {
+            @chmod($temp,0600);
+            if (file_put_contents($temp,json_encode($status,JSON_UNESCAPED_SLASHES|JSON_THROW_ON_ERROR))===false || !rename($temp,$file)) { throw new HttpError(503,'Could not save live status.'); }
+        } finally { if (is_file($temp)) { unlink($temp); } }
+        self::output(['protocol'=>'vonpresence-v1','server_time'=>$now,'expires_after'=>90]);
+    }
     public function run(): never {
         $method=$_SERVER['REQUEST_METHOD'];
         $path=rawurldecode((string)parse_url($_SERVER['REQUEST_URI'],PHP_URL_PATH));
@@ -292,7 +339,7 @@ final class Server {
             if ($method!=='GET') { throw new HttpError(405,'Method not allowed.'); }
             require_once __DIR__.'/PodcastLibrary.php';
             try { $transport=PodcastLibrary::transport(); } catch (HttpError $e) { $transport='unavailable'; }
-            self::output(['service'=>'Von Podcast Sync','version'=>'1.1.1','api'=>'gpodder-2','queue_protocol'=>'vonqueue-v1','web_player'=>true,
+            self::output(['service'=>'Von Podcast Sync','version'=>'1.1.3','api'=>'gpodder-2','queue_protocol'=>'vonqueue-v1','web_player'=>true,'presence_protocol'=>'vonpresence-v1',
                 'feed_transport'=>$transport,'feed_parser'=>class_exists('DOMDocument')?'DOM':'unavailable']);
         }
         if ($path==='/api/2/queue-capabilities.json' && $method==='GET') {
@@ -304,10 +351,11 @@ final class Server {
             if ($m[2]==='logout') { $this->session(); $_SESSION=[]; session_destroy(); }
             self::output((object)[]);
         }
-        if (!preg_match('#^/api/2/(devices|subscriptions|episodes|sync-devices|queue|library|discover)/([^/]+?)(?:/([^/]+))?\.json$#D',$path,$m)) {
+        if (!preg_match('#^/api/2/(devices|subscriptions|episodes|sync-devices|queue|library|discover|presence)/([^/]+?)(?:/([^/]+))?\.json$#D',$path,$m)) {
             throw new HttpError(404,'Endpoint not found.');
         }
         $user=$this->authenticate($m[2]); $uid=(int)$user['id']; $kind=$m[1]; $device=$m[3]??null;
+        if ($kind==='presence') { $this->presence($uid,$device,$method); }
         if ($kind==='discover' && $device===null && $method==='GET') {
             $term=$_GET['q']??'';
             if (!is_string($term)) { throw new HttpError(400,'Invalid podcast search.'); }
@@ -324,7 +372,13 @@ final class Server {
             require_once __DIR__.'/PodcastLibrary.php';
             $library=new PodcastLibrary($this->config['feed_cache_path'] ?? dirname($this->config['session_path']).'/feeds');
             $result=$library->get($feed,($_GET['refresh']??'')==='1');
-            if (($_GET['summary']??'')==='1') { unset($result['episodes']); }
+            $result['latest_episode'] = max([0, ...array_map(static fn($episode) => (int)($episode['published']??0), $result['episodes']??[])]);
+            if (($_GET['summary']??'')==='1') {
+                // Identity only: the browser can update counts from synced actions
+                // without downloading every episode description on every sync.
+                $result['episode_index'] = array_map(static fn($episode) => [$episode['guid']??'', $episode['episode']], $result['episodes']??[]);
+                unset($result['episodes']);
+            }
             self::output($result);
         }
         if ($kind==='subscriptions' && $device!==null) { $this->subscriptions($uid,$device,$method); }

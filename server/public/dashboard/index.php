@@ -11,8 +11,8 @@ header('Cache-Control: no-store');
   <meta name="referrer" content="no-referrer">
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; connect-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: http: https:; media-src 'self' http: https:; base-uri 'none'; form-action 'none'">
   <title>Podcast Sync · Listen together</title>
-  <link rel="stylesheet" href="app.css?v=1.1.1">
-  <script src="app.js?v=1.1.1" defer></script>
+  <link rel="stylesheet" href="app.css?v=1.1.3">
+  <script src="app.js?v=1.1.3" defer></script>
 </head>
 <body>
 <div class="shell">
@@ -63,12 +63,12 @@ header('Cache-Control: no-store');
         <div id="subscription-tools" class="surface add-feed" hidden><form id="subscribe-form"><label for="feed-url">Add a podcast by RSS feed URL</label><div class="inline-form"><input id="feed-url" type="url" placeholder="https://example.com/podcast/rss" required><button type="submit" class="primary-button" data-write>Subscribe</button></div></form></div>
         <div id="podcast-heading" hidden></div>
         <div class="surface detail-surface">
-          <div class="list-toolbar"><label class="search-label" for="search"><span aria-hidden="true">⌕</span><input id="search" type="search" placeholder="Search your library" autocomplete="off"></label><span id="result-count" class="small muted"></span><button id="clear-queue" class="danger-button" data-write type="button" hidden>Clear queue</button></div>
+          <div class="list-toolbar"><label class="search-label" for="search"><span aria-hidden="true">⌕</span><input id="search" type="search" placeholder="Search your library" autocomplete="off"></label><label id="count-control" class="sort-control" for="count-mode" hidden>Count<select id="count-mode" aria-label="Count"><option value="unplayed">Unplayed</option><option value="played">Played</option><option value="total">Total episodes</option><option value="queued">In queue</option><option value="off">Off</option></select></label><label id="sort-control" class="sort-control" for="list-sort" hidden>Order<select id="list-sort" aria-label="Order"><option value="newest">Newest first</option><option value="oldest">Oldest first</option><option id="sort-count-high" value="count-high">Count: highest first</option><option id="sort-count-low" value="count-low">Count: lowest first</option><option id="sort-title" value="title">Title A–Z</option></select></label><span id="result-count" class="small muted"></span><button id="clear-queue" class="danger-button" data-write type="button" hidden>Clear queue</button></div>
           <p id="list-note" class="list-note"></p><div id="list-content"></div>
           <div class="load-more-wrap"><button id="load-more" class="secondary-button" type="button" hidden>Show more</button></div>
         </div>
       </section>
-      <footer class="page-footer">Podcast Sync 1.1.1 <span aria-hidden="true">·</span> Audio streams directly from its publisher</footer>
+      <footer class="page-footer">Podcast Sync 1.1.3 <span aria-hidden="true">·</span> Audio streams directly from its publisher</footer>
     </section>
     <div id="status" class="sr-only" role="status" aria-live="polite"></div>
   </main>
@@ -76,7 +76,7 @@ header('Cache-Control: no-store');
 <section id="player" class="player" aria-label="Audio player" hidden>
   <div class="now-playing"><div id="player-art"></div><div class="row-main"><div class="eyebrow">NOW PLAYING</div><strong id="player-title"></strong><button id="player-podcast" class="text-button" type="button"></button></div></div>
   <div class="playback-controls"><audio id="audio" controls preload="metadata"></audio><div class="player-options"><button id="skip-back" class="small-button" type="button" aria-label="Back 15 seconds">−15s</button><button id="skip-forward" class="small-button" type="button" aria-label="Forward 30 seconds">+30s</button><label for="playback-rate">Speed</label><select id="playback-rate"><option value="0.75">0.75×</option><option value="1" selected>1×</option><option value="1.25">1.25×</option><option value="1.5">1.5×</option><option value="1.75">1.75×</option><option value="2">2×</option></select><label class="check-label"><input id="auto-next" type="checkbox" checked>Play next</label></div></div>
-  <div class="player-state"><span id="progress-status" class="small muted">Ready to play</span><button id="retry-progress" class="text-button" type="button" hidden>Retry saving</button><p id="player-error" class="error-text" role="alert" hidden></p></div>
+  <div class="player-state"><span id="progress-status" class="small muted">Ready to play</span><button id="retry-progress" class="text-button" type="button" hidden>Retry saving</button><p id="progress-error" class="error-text" role="alert" hidden></p><p id="player-error" class="error-text" role="alert" hidden></p></div>
 </section>
 <dialog id="confirm-dialog"><form method="dialog"><h2 id="confirm-title"></h2><p id="confirm-message"></p><div class="dialog-actions"><button value="cancel" class="secondary-button">Cancel</button><button value="confirm" id="confirm-button" class="danger-button">Confirm</button></div></form></dialog>
 </body>

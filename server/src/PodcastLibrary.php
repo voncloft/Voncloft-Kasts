@@ -4,7 +4,7 @@ namespace PodcastSync;
 
 /** Fetch and cache publisher feeds. Audio and artwork go straight to the browser. */
 final class PodcastLibrary {
-    private const MAX_BYTES = 8388608;
+    private const MAX_BYTES = 16777216;
     public function __construct(private string $cacheDir) {}
 
     public static function transport(): string {
@@ -82,7 +82,7 @@ final class PodcastLibrary {
         $command = [$binary, '--disable', '--silent', '--show-error', '--globoff', '--include',
             '--proxy', '', '--noproxy', '*', '--proto', '=http,https',
             '--connect-timeout', sprintf('%.3F', min(8, $remaining)), '--max-time', sprintf('%.3F', $remaining),
-            '--max-filesize', (string)self::MAX_BYTES, '--user-agent', 'VonPodcastSync/1.1.1',
+            '--max-filesize', (string)self::MAX_BYTES, '--user-agent', 'VonPodcastSync/1.1.3',
             '--header', 'Accept-Encoding: identity', '--header', 'Accept: application/rss+xml, application/atom+xml, application/xml, application/json, text/xml, */*'];
         if (@inet_pton($host) === false) {
             $command[] = '--resolve';
@@ -93,7 +93,7 @@ final class PodcastLibrary {
         [$raw, $code] = self::process($command, $input, $deadline, self::MAX_BYTES + 65536);
         if ($code !== 0) {
             if ($code === 28) { throw new HttpError(504, 'The publisher download timed out.'); }
-            if ($code === 63) { throw new HttpError(413, 'The publisher feed exceeds the 8 MiB feed limit.'); }
+            if ($code === 63) { throw new HttpError(413, 'The publisher feed exceeds the 16 MiB feed limit.'); }
             if (in_array($code, [51,58,60,77,83,90,91], true)) { throw new HttpError(502, 'curl could not verify the publisher certificate. Check the server CA certificates.'); }
             throw new HttpError(502, 'curl could not fetch the publisher feed (exit '.$code.'). Check server DNS and internet access.');
         }
@@ -107,7 +107,7 @@ final class PodcastLibrary {
             $status = (int)$match[1];
             if ($status >= 100 && $status < 200) { continue; }
             $location = preg_match('/^Location:\s*(.+)$/mi', $headers, $match) ? trim($match[1]) : null;
-            if (strlen($raw) > self::MAX_BYTES) { throw new HttpError(413, 'The publisher feed exceeds the 8 MiB feed limit.'); }
+            if (strlen($raw) > self::MAX_BYTES) { throw new HttpError(413, 'The publisher feed exceeds the 16 MiB feed limit.'); }
             return [$status, $location, $raw];
         }
         throw new HttpError(502, 'The publisher returned too many interim responses.');
@@ -266,7 +266,7 @@ final class PodcastLibrary {
                     $chunk = fread($stream, 65536);
                     if ($chunk === false || stream_get_meta_data($stream)['timed_out']) { throw new HttpError(504, 'The feed download timed out.'); }
                     $body .= $chunk;
-                    if (strlen($body) > self::MAX_BYTES) { throw new HttpError(413, 'The publisher feed exceeds the 8 MiB feed limit.'); }
+                    if (strlen($body) > self::MAX_BYTES) { throw new HttpError(413, 'The publisher feed exceeds the 16 MiB feed limit.'); }
                 }
             } finally { fclose($stream); }
             return [$body, $url];
