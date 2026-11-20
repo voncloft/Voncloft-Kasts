@@ -1,0 +1,20 @@
+Von Podcast Sync — server + Kasts patches + Android APK
+
+Read docs/SETUP.txt first.
+
+1. Deploy server/ to your LAMP server, exposing only server/public.
+2. Set the MySQL credentials and create your sync account with bin/manage.php.
+3. Build/install the updated Kasts recipe (already patched locally, release 3).
+4. Install clients/antennapod/AntennaPod-Queue-Sync-3.12.3.apk on Android.
+5. In Kasts select gpodder.net -> Log In -> Use custom server -> Hostname.
+6. Connect both apps to the same server/account, with different device names.
+7. Sync Kasts, then Android, then Kasts to establish the shared queue.
+
+The APK is ready to install; Android Studio is not needed.
+The Android app installs beside stock AntennaPod as "AntennaPod Queue Sync".
+Queue membership and order need these modified clients. Server choice alone
+cannot add queue support to the stock apps.
+
+The server supports subscriptions and playback actions plus an ordered queue.
+Full source, client patches and rebuild instructions are included.
+SHA256SUMS covers the files in this bundle.

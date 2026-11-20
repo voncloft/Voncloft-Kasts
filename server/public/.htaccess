@@ -1,0 +1,9 @@
+Require all granted
+Options -Indexes -MultiViews
+RewriteEngine On
+RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteRule ^ index.php [QSA,L]
+<FilesMatch "^\.">
+    Require all denied
+</FilesMatch>

@@ -1,0 +1,22 @@
+# description : Podcast application for finding feeds, downloading episodes, and tracking playback progress
+# depends : extra-cmake-modules kcolorscheme kconfig kcoreaddons kcrash kdbusaddons kde-deps-installer ki18n kiconthemes kirigami kirigami-addons kwindowsystem qqc2-desktop-style qt6 qtkeychain syndication taglib threadweaver
+
+name=kasts
+version=26.08.3
+release=3
+
+source="https://download.kde.org/stable/release-service/$version/src/${name}-$version.tar.xz
+        fix-full-push-durationdb.patch
+        fix-full-push-feed-url.patch
+        shared-queue-sync.patch"
+options="!checksum"
+
+build() {
+    cd "kasts-$version"
+    patch --batch --fuzz=0 -Np1 -i "$SRC/fix-full-push-durationdb.patch" || return 1
+    patch --batch --fuzz=0 -Np1 -i "$SRC/fix-full-push-feed-url.patch" || return 1
+    patch --batch --fuzz=0 -Np1 -i "$SRC/shared-queue-sync.patch" || return 1
+    plasma-package-installer
+    cd build
+    make DESTDIR="$PKG" install
+}

@@ -1,0 +1,79 @@
+CLIENT SOURCES AND REBUILDING
+
+You do not need to build Android yourself: install the included APK.
+These instructions are for reproducing or updating the custom clients.
+
+ANTENNAPOD
+
+Base: AntennaPod 3.12.3, commit 175e5ef8fe3e125a5014d70ef0c57cf85661c71b.
+Official source: https://github.com/AntennaPod/AntennaPod
+License: GPL-3.0; original license is included in the source archive.
+Custom version: 3.12.3-vonqueue.1.
+
+sources/AntennaPod-3.12.3-vonqueue.1-source.tar.gz contains the patched source
+and Gradle wrapper, without local build output, credentials, SDK or signing key.
+clients/antennapod/shared-queue-sync.patch is the complete change from the
+base commit, including the tests. Do not apply it again to the patched archive.
+
+Use JDK 21 and Android SDK command-line tools (Android Studio is optional).
+Install SDK platform android-36, build-tools 35.0.0 and platform-tools using
+sdkmanager, and accept the Android SDK licenses. Set JAVA_HOME and ANDROID_HOME.
+The checked-in Gradle wrapper downloads Gradle 8.13 and build dependencies.
+
+From the extracted source root:
+
+  ./gradlew :app:assembleDebug
+  ./gradlew --console=plain :net:sync:service:test
+
+APK: app/build/outputs/apk/free/debug/app-free-debug.apk
+The free flavor avoids Google Play/Cast dependencies. The command also builds
+the play debug flavor, but the delivered APK is the free flavor.
+
+A future APK update must keep package de.danoeh.antennapod.vonqueue and use the
+same signing key. Otherwise Android rejects an update over this installation.
+Export a database backup before uninstalling/reinstalling a differently signed
+build. Increment versionCode for future updates.
+
+The key used for this delivered APK is retained on the desktop at:
+/home/von/Documents/Codex/2026-11-20/ok-x20/work/podcast-sync/android-user/debug.keystore
+Set ANDROID_USER_HOME to that directory when rebuilding on this workstation.
+It is intentionally absent from the deployable ZIP. Preserve it privately.
+The certificate SHA-256 is:
+6d58ff50484b811b34846109b2d9bb85864abd46244a2bd2b75a568f9841f746
+
+KASTS
+
+Base: official KDE Kasts 26.08.3 source tarball (included under sources/).
+Source URL: https://download.kde.org/stable/release-service/26.08.3/src/kasts-26.08.3.tar.xz
+License information and third-party notices are included in the original source.
+
+The VonOS recipe is clients/kasts/spkgbuild, release 3. Put it and its three
+patch files together in kde-apps/kasts in the Scratch repository.
+The workstation's actual recipe has already been updated there.
+
+To build manually, extract the Kasts source, enter the extracted directory,
+and apply the patches IN THIS ORDER (replace /path/to/bundle with its location):
+
+  patch --batch --fuzz=0 -Np1 -i /path/to/bundle/clients/kasts/fix-full-push-durationdb.patch
+  patch --batch --fuzz=0 -Np1 -i /path/to/bundle/clients/kasts/fix-full-push-feed-url.patch
+  patch --batch --fuzz=0 -Np1 -i /path/to/bundle/clients/kasts/shared-queue-sync.patch
+  cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr -DBUILD_TESTING=OFF
+  cmake --build build -j2
+
+Use your distribution's Qt 6 and KDE Frameworks development dependencies.
+See the recipe's depends line and upstream CMakeLists.txt for the required
+versions. Installing from the Scratch recipe is preferred on VonOS.
+
+SERVER TESTS
+
+The PHP service itself has no Composer dependencies. Syntax check:
+  php -l server/src/Server.php
+
+Run its isolated HTTP/database integration tests with Python 3 and PHP CLI
+with pdo_sqlite enabled:
+  python3 server/tests/test_api.py
+
+PODSYNC_PHP can name a different PHP binary. PODSYNC_TEST_DSN optionally names
+an EMPTY, DISPOSABLE local MySQL database for the test suite. Tests create
+alice/bob accounts and alter their data. Never use a production database.
+The tests use a temporary PHP HTTP listener and four workers, then stop them.

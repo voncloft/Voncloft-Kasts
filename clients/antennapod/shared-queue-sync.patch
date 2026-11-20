@@ -1,0 +1,613 @@
+diff --git a/app/build.gradle b/app/build.gradle
+index d47a774..f7b43fc 100644
+--- a/app/build.gradle
++++ b/app/build.gradle
+@@ -13,7 +13,7 @@ android {
+         // "1.2.3-beta4"    -> 1020304
+         // "1.2.3"          -> 1020395
+         versionCode 3120395
+-        versionName "3.12.3"
++        versionName "3.12.3-vonqueue.1"
+     }
+ 
+     signingConfigs {
+@@ -29,8 +29,8 @@ android {
+ 
+     buildTypes {
+         debug {
+-            applicationIdSuffix ".debug"
+-            resValue "string", "provider_authority", "de.danoeh.antennapod.debug.provider"
++            applicationIdSuffix ".vonqueue"
++            resValue "string", "provider_authority", "de.danoeh.antennapod.vonqueue.provider"
+         }
+         release {
+             resValue "string", "provider_authority", "de.danoeh.antennapod.provider"
+diff --git a/common.gradle b/common.gradle
+index fd26938..3fef6a1 100644
+--- a/common.gradle
++++ b/common.gradle
+@@ -22,7 +22,7 @@ android {
+             resValue "string", "app_name", "AntennaPod"
+         }
+         debug {
+-            resValue "string", "app_name", "AntennaPod Debug"
++            resValue "string", "app_name", "@string/vonqueue_app_name"
+         }
+     }
+ 
+diff --git a/net/sync/gpoddernet/src/main/java/de/danoeh/antennapod/net/sync/gpoddernet/GpodnetService.java b/net/sync/gpoddernet/src/main/java/de/danoeh/antennapod/net/sync/gpoddernet/GpodnetService.java
+index 96a628d..dd835d1 100644
+--- a/net/sync/gpoddernet/src/main/java/de/danoeh/antennapod/net/sync/gpoddernet/GpodnetService.java
++++ b/net/sync/gpoddernet/src/main/java/de/danoeh/antennapod/net/sync/gpoddernet/GpodnetService.java
+@@ -73,6 +73,48 @@ public class GpodnetService implements ISyncService {
+         this.baseFolder = hostname.subfolder;
+     }
+ 
++    private URL queueUrl() throws GpodnetServiceException {
++        try {
++            return new URI(baseScheme, null, baseHost, basePort,
++                    String.format("%s/api/2/queue/%s/%s.json", baseFolder, username, deviceId), null, null).toURL();
++        } catch (MalformedURLException | URISyntaxException e) {
++            throw new GpodnetServiceException(e);
++        }
++    }
++
++    @Override
++    public boolean supportsQueueSync() throws GpodnetServiceException {
++        requireLoggedIn();
++        try (Response response = httpClient.newCall(new Request.Builder().url(queueUrl()).build()).execute()) {
++            if (response.code() == 404 || response.code() == 501) {
++                return false;
++            }
++            checkStatusCode(response);
++            if (response.body() == null) {
++                throw new GpodnetServiceException("Empty queue capability response");
++            }
++            return "vonqueue-v1".equals(new JSONObject(response.body().string()).optString("protocol"));
++        } catch (IOException | JSONException e) {
++            throw new GpodnetServiceException(e);
++        }
++    }
++
++    @Override
++    public String queueSyncScope() throws GpodnetServiceException {
++        return queueUrl().toExternalForm();
++    }
++
++    @Override
++    public JSONObject syncQueue(JSONObject payload) throws GpodnetServiceException {
++        requireLoggedIn();
++        try {
++            RequestBody body = RequestBody.create(payload.toString(), JSON);
++            return new JSONObject(executeRequest(new Request.Builder().url(queueUrl()).post(body)));
++        } catch (JSONException e) {
++            throw new GpodnetServiceException(e);
++        }
++    }
++
+     private void requireLoggedIn() {
+         if (!loggedIn) {
+             throw new IllegalStateException("Not logged in");
+diff --git a/net/sync/service-interface/README.md b/net/sync/service-interface/README.md
+index 8be72f3..c066e0f 100644
+--- a/net/sync/service-interface/README.md
++++ b/net/sync/service-interface/README.md
+@@ -2,3 +2,5 @@
+ 
+ This module contains the interface for starting the sync service.
+ Defines `ISyncService` for backend implementations and `SynchronizationQueue` for queuing local changes before upload.
++
++Optional ordered queue synchronization is capability-negotiated through `ISyncService`; backends without it retain the default behavior.
+diff --git a/net/sync/service-interface/src/main/java/de/danoeh/antennapod/net/sync/serviceinterface/ISyncService.java b/net/sync/service-interface/src/main/java/de/danoeh/antennapod/net/sync/serviceinterface/ISyncService.java
+index 29632ed..9805646 100644
+--- a/net/sync/service-interface/src/main/java/de/danoeh/antennapod/net/sync/serviceinterface/ISyncService.java
++++ b/net/sync/service-interface/src/main/java/de/danoeh/antennapod/net/sync/serviceinterface/ISyncService.java
+@@ -1,6 +1,7 @@
+ package de.danoeh.antennapod.net.sync.serviceinterface;
+ 
+ import java.util.List;
++import org.json.JSONObject;
+ 
+ public interface ISyncService {
+ 
+@@ -16,5 +17,17 @@ public interface ISyncService {
+     UploadChangesResponse uploadEpisodeActions(List<EpisodeAction> queuedEpisodeActions)
+             throws SyncServiceException;
+ 
++    default boolean supportsQueueSync() throws SyncServiceException {
++        return false;
++    }
++
++    default String queueSyncScope() throws SyncServiceException {
++        return "";
++    }
++
++    default JSONObject syncQueue(JSONObject payload) throws SyncServiceException {
++        throw new SyncServiceException("Queue synchronization is not supported by this provider");
++    }
++
+     void logout() throws SyncServiceException;
+ }
+diff --git a/net/sync/service/build.gradle b/net/sync/service/build.gradle
+index d89ec3f..2743313 100644
+--- a/net/sync/service/build.gradle
++++ b/net/sync/service/build.gradle
+@@ -32,4 +32,5 @@ dependencies {
+     implementation "com.google.guava:guava:31.0.1-android"
+ 
+     testImplementation "junit:junit:$junitVersion"
++    testImplementation "org.robolectric:robolectric:$robolectricVersion"
+ }
+diff --git a/net/sync/service/src/main/java/de/danoeh/antennapod/net/sync/service/SyncService.java b/net/sync/service/src/main/java/de/danoeh/antennapod/net/sync/service/SyncService.java
+index 54fd371..6f5e106 100644
+--- a/net/sync/service/src/main/java/de/danoeh/antennapod/net/sync/service/SyncService.java
++++ b/net/sync/service/src/main/java/de/danoeh/antennapod/net/sync/service/SyncService.java
+@@ -56,6 +56,7 @@ public class SyncService extends Worker {
+ 
+     private static boolean currentlyActive = false;
+     private final SynchronizationQueueStorage synchronizationQueueStorage;
++    private boolean queueSyncSupported;
+ 
+     public SyncService(@NonNull Context context, @NonNull WorkerParameters params) {
+         super(context, params);
+@@ -77,6 +78,7 @@ public class SyncService extends Worker {
+         SynchronizationSettings.updateLastSynchronizationAttempt();
+         try {
+             activeSyncProvider.login();
++            queueSyncSupported = activeSyncProvider.supportsQueueSync();
+             syncSubscriptions(activeSyncProvider);
+             waitForDownloadServiceCompleted();
+             if (someFeedWasNotRefreshedYet()) {
+@@ -86,7 +88,12 @@ public class SyncService extends Worker {
+                 FeedUpdateManager.getInstance().runOnce(getApplicationContext());
+                 return Result.success();
+             }
+-            syncEpisodeActions(activeSyncProvider);
++            boolean importedQueueEpisodes = false;
++            if (queueSyncSupported) {
++                EventBus.getDefault().postSticky(new SyncServiceEvent(R.string.sync_status_shared_queue));
++                importedQueueEpisodes = new QueueSynchronizer(getApplicationContext(), activeSyncProvider).synchronize();
++            }
++            syncEpisodeActions(activeSyncProvider, importedQueueEpisodes);
+             activeSyncProvider.logout();
+             clearErrorNotifications();
+             EventBus.getDefault().postSticky(new SyncServiceEvent(R.string.sync_status_success));
+@@ -210,10 +217,10 @@ public class SyncService extends Worker {
+         SynchronizationSettings.setLastSubscriptionSynchronizationAttemptTimestamp(newTimeStamp);
+     }
+ 
+-    private void syncEpisodeActions(ISyncService syncServiceImpl) throws SyncServiceException {
++    private void syncEpisodeActions(ISyncService syncServiceImpl, boolean importedQueueEpisodes) throws SyncServiceException {
+         final long lastSync = SynchronizationSettings.getLastEpisodeActionSynchronizationTimestamp();
+         EventBus.getDefault().postSticky(new SyncServiceEvent(R.string.sync_status_episodes_download));
+-        EpisodeActionChanges getResponse = syncServiceImpl.getEpisodeActionChanges(lastSync);
++        EpisodeActionChanges getResponse = syncServiceImpl.getEpisodeActionChanges(importedQueueEpisodes ? 0 : lastSync);
+         long newTimeStamp = getResponse.getTimestamp();
+         List<EpisodeAction> remoteActions = getResponse.getEpisodeActions();
+         processEpisodeActions(remoteActions);
+@@ -296,7 +303,9 @@ public class SyncService extends Worker {
+             }
+             updatedItems.add(feedItem);
+         }
+-        DBWriter.removeQueueItem(getApplicationContext(), false, queueToBeRemoved.toArray());
++        if (!queueSyncSupported) {
++            DBWriter.removeQueueItem(getApplicationContext(), false, queueToBeRemoved.toArray());
++        }
+         DBReader.loadFeedDataOfFeedItemList(updatedItems);
+         DBWriter.setItemList(updatedItems);
+     }
+diff --git a/storage/database/README.md b/storage/database/README.md
+index 8b4cd41..56cf91c 100644
+--- a/storage/database/README.md
++++ b/storage/database/README.md
+@@ -2,3 +2,5 @@
+ 
+ AntennaPod's main database, containing subscriptions and playback state (but not user settings).
+ Uses raw SQLite via `PodDBAdapter` (not Room); writes go through async `DBWriter`; reads use cursor-to-object mappers in the `mapper/` package.
++
++Queue synchronization uses `DBWriter.setQueueForSync` to compare the expected queue IDs and replace the order on the database executor. A false result means another edit occurred and the caller must retry without advancing its sync revision.
+diff --git a/storage/database/src/main/java/de/danoeh/antennapod/storage/database/DBWriter.java b/storage/database/src/main/java/de/danoeh/antennapod/storage/database/DBWriter.java
+index a270692..068b2d9 100644
+--- a/storage/database/src/main/java/de/danoeh/antennapod/storage/database/DBWriter.java
++++ b/storage/database/src/main/java/de/danoeh/antennapod/storage/database/DBWriter.java
+@@ -449,6 +449,38 @@ public class DBWriter {
+         events.add(QueueEvent.sorted(queue));
+     }
+ 
++    public static Future<Boolean> setQueueForSync(final List<FeedItem> queue, final List<Long> expectedIds) {
++        return dbExec.submit(() -> {
++            List<Long> currentIds = new ArrayList<>();
++            for (FeedItem item : DBReader.getQueue()) {
++                currentIds.add(item.getId());
++            }
++            if (!currentIds.equals(expectedIds)) {
++                return false;
++            }
++            PodDBAdapter adapter = PodDBAdapter.getInstance();
++            adapter.open();
++            try {
++                adapter.setQueue(queue);
++            } finally {
++                adapter.close();
++            }
++            List<Long> storedIds = new ArrayList<>();
++            List<Long> wantedIds = new ArrayList<>();
++            for (FeedItem item : DBReader.getQueue()) {
++                storedIds.add(item.getId());
++            }
++            for (FeedItem item : queue) {
++                wantedIds.add(item.getId());
++            }
++            if (!storedIds.equals(wantedIds)) {
++                throw new IllegalStateException("Queue database update did not persist");
++            }
++            EventBus.getDefault().post(QueueEvent.setQueue(queue));
++            return true;
++        });
++    }
++
+     /**
+      * Removes all FeedItem objects from the queue.
+      */
+diff --git a/ui/i18n/src/main/res/values/strings.xml b/ui/i18n/src/main/res/values/strings.xml
+index d383ff4..77f8e82 100644
+--- a/ui/i18n/src/main/res/values/strings.xml
++++ b/ui/i18n/src/main/res/values/strings.xml
+@@ -1037,4 +1037,9 @@
+     <string name="wearos_play_on_phone" tools:ignore="UnusedResources">Play on phone</string>
+     <string name="wearos_browse_phone" tools:ignore="UnusedResources">Browse phone</string>
+     <string name="wearos_open_on_phone" tools:ignore="UnusedResources">Open on phone</string>
++    <string name="vonqueue_app_name">AntennaPod Queue Sync</string>
++    <string name="sync_status_shared_queue">Synchronizing shared queue</string>
++    <string name="sync_shared_queue_changed">Queue changed during synchronization. Retrying safely.</string>
++    <string name="sync_shared_queue_invalid">The server returned an invalid shared queue.</string>
++    <string name="sync_shared_queue_save_failed">Unable to save the queue synchronization revision</string>
+ </resources>
+--- /dev/null
++++ b/net/sync/service/src/main/java/de/danoeh/antennapod/net/sync/service/QueueSynchronizer.java
+@@ -0,0 +1,157 @@
++package de.danoeh.antennapod.net.sync.service;
++
++import android.content.Context;
++import android.content.SharedPreferences;
++import de.danoeh.antennapod.model.feed.Feed;
++import de.danoeh.antennapod.model.feed.FeedItem;
++import de.danoeh.antennapod.model.feed.FeedMedia;
++import de.danoeh.antennapod.net.sync.serviceinterface.ISyncService;
++import de.danoeh.antennapod.net.sync.serviceinterface.SyncServiceException;
++import de.danoeh.antennapod.storage.database.DBReader;
++import de.danoeh.antennapod.storage.database.DBWriter;
++import java.net.URI;
++import java.util.ArrayList;
++import java.util.Date;
++import java.util.HashMap;
++import java.util.HashSet;
++import java.util.List;
++import java.util.Map;
++import java.util.Set;
++import java.util.concurrent.ExecutionException;
++import org.json.JSONArray;
++import org.json.JSONException;
++import org.json.JSONObject;
++
++final class QueueSynchronizer {
++    private final Context context;
++    private final ISyncService provider;
++
++    QueueSynchronizer(Context context, ISyncService provider) {
++        this.context = context;
++        this.provider = provider;
++    }
++
++    boolean synchronize() throws SyncServiceException {
++        try {
++            SharedPreferences state = context.getSharedPreferences("vonqueue_v1", Context.MODE_PRIVATE);
++            String scope = provider.queueSyncScope();
++            List<FeedItem> before = DBReader.getQueue();
++            DBReader.loadFeedDataOfFeedItemList(before);
++            List<Long> expectedIds = new ArrayList<>();
++            JSONArray local = new JSONArray();
++            for (FeedItem item : before) {
++                expectedIds.add(item.getId());
++                FeedMedia media = item.getMedia();
++                if (media == null || item.getFeed() == null) {
++                    throw new JSONException("Queue contains an item without feed or media");
++                }
++                JSONObject entry = new JSONObject();
++                entry.put("podcast", item.getFeed().getDownloadUrl());
++                entry.put("episode", media.getDownloadUrl());
++                entry.put("guid", item.getItemIdentifier() == null ? "" : item.getItemIdentifier());
++                entry.put("title", item.getTitle() == null ? "" : item.getTitle());
++                entry.put("podcast_title", item.getFeed().getTitle() == null ? "" : item.getFeed().getTitle());
++                entry.put("published", item.getPubDate() == null ? 0 : Math.max(0, item.getPubDate().getTime() / 1000));
++                entry.put("duration", Math.max(0, media.getDuration() / 1000));
++                local.put(entry);
++            }
++            JSONObject payload = new JSONObject();
++            payload.put("base_revision", state.contains(scope) ? state.getLong(scope, 0) : JSONObject.NULL);
++            payload.put("items", local);
++            JSONObject response = provider.syncQueue(payload);
++            if (!"vonqueue-v1".equals(response.optString("protocol")) || response.getLong("revision") < 0) {
++                throw new JSONException("Unexpected queue protocol or revision");
++            }
++            JSONArray remote = response.getJSONArray("items");
++            if (remote.length() > 50000) {
++                throw new JSONException("Queue is too large");
++            }
++            Set<String> identities = new HashSet<>();
++            for (int i = 0; i < remote.length(); i++) {
++                JSONObject item = remote.getJSONObject(i);
++                checkUrl(item.getString("podcast"));
++                checkUrl(item.getString("episode"));
++                String identity = item.getString("podcast") + "\n"
++                        + (item.optString("guid").isEmpty() ? item.getString("episode") : item.getString("guid"));
++                if (!identities.add(identity) || item.optLong("duration") < 0 || item.optLong("published") < 0) {
++                    throw new JSONException("Duplicate or invalid queue entry");
++                }
++            }
++            Map<String, Feed> feeds = new HashMap<>();
++            for (Feed feed : DBReader.getFeedList()) {
++                feeds.put(feed.getDownloadUrl(), feed);
++            }
++            boolean importedEpisodes = false;
++            List<FeedItem> target = new ArrayList<>();
++            Set<Long> targetIds = new HashSet<>();
++            for (int i = 0; i < remote.length(); i++) {
++                JSONObject entry = remote.getJSONObject(i);
++                String podcast = entry.getString("podcast");
++                String episode = entry.getString("episode");
++                String guid = entry.optString("guid");
++                FeedItem item = DBReader.getFeedItemByGuidOrEpisodeUrl(guid.isEmpty() ? null : guid, episode);
++                if (item != null) {
++                    DBReader.loadFeedDataOfFeedItemList(List.of(item));
++                    if (item.getFeed() == null || !podcast.equals(item.getFeed().getDownloadUrl())) {
++                        item = null;
++                    }
++                }
++                if (item == null) {
++                    for (FeedItem candidate : DBReader.getFeedItemsWithUrl(List.of(episode))) {
++                        if (candidate.getFeed() != null && podcast.equals(candidate.getFeed().getDownloadUrl())) {
++                            item = candidate;
++                            break;
++                        }
++                    }
++                }
++                if (item == null) {
++                    Feed feed = feeds.get(podcast);
++                    if (feed == null) {
++                        feed = new Feed(podcast, null, entry.optString("podcast_title", podcast));
++                        feeds.put(podcast, feed);
++                    }
++                    item = new FeedItem();
++                    item.setFeed(feed);
++                    item.setTitle(entry.optString("title", episode));
++                    item.setItemIdentifier(guid.isEmpty() ? episode : guid);
++                    item.setPubDate(new Date(entry.optLong("published", 0) * 1000));
++                    item.setPlayed(false);
++                    FeedMedia media = new FeedMedia(item, episode, 0, "audio/mpeg");
++                    media.setDuration((int) Math.min(Integer.MAX_VALUE, entry.optLong("duration", 0) * 1000));
++                    item.setMedia(media);
++                    DBWriter.setFeedItem(item, false).get();
++                    importedEpisodes = true;
++                    if (item.getId() <= 0) {
++                        throw new JSONException("Unable to save queued episode");
++                    }
++                }
++                if (!targetIds.add(item.getId())) {
++                    throw new JSONException("Queue identities resolved to duplicate episodes");
++                }
++                target.add(item);
++            }
++            if (!DBWriter.setQueueForSync(target, expectedIds).get()) {
++                throw new SyncServiceException(context.getString(R.string.sync_shared_queue_changed));
++            }
++            if (!state.edit().putLong(scope, response.getLong("revision")).commit()) {
++                throw new SyncServiceException(context.getString(R.string.sync_shared_queue_save_failed));
++            }
++            return importedEpisodes;
++        } catch (JSONException | IllegalArgumentException e) {
++            throw new SyncServiceException(context.getString(R.string.sync_shared_queue_invalid));
++        } catch (InterruptedException e) {
++            Thread.currentThread().interrupt();
++            throw new SyncServiceException(e);
++        } catch (ExecutionException e) {
++            throw new SyncServiceException(e);
++        }
++    }
++
++    private static void checkUrl(String value) throws JSONException {
++        URI uri = URI.create(value);
++        if (value.length() > 8192 || uri.getHost() == null
++                || !("https".equalsIgnoreCase(uri.getScheme()) || "http".equalsIgnoreCase(uri.getScheme()))) {
++            throw new JSONException("Invalid queue URL");
++        }
++    }
++}
+--- /dev/null
++++ b/net/sync/service/src/test/java/de/danoeh/antennapod/net/sync/service/QueueSynchronizerTest.java
+@@ -0,0 +1,185 @@
++package de.danoeh.antennapod.net.sync.service;
++
++import android.content.Context;
++import de.danoeh.antennapod.model.feed.Feed;
++import de.danoeh.antennapod.model.feed.FeedItem;
++import de.danoeh.antennapod.model.feed.FeedMedia;
++import de.danoeh.antennapod.net.sync.serviceinterface.EpisodeAction;
++import de.danoeh.antennapod.net.sync.serviceinterface.EpisodeActionChanges;
++import de.danoeh.antennapod.net.sync.serviceinterface.ISyncService;
++import de.danoeh.antennapod.net.sync.serviceinterface.SubscriptionChanges;
++import de.danoeh.antennapod.net.sync.serviceinterface.SyncServiceException;
++import de.danoeh.antennapod.net.sync.serviceinterface.SynchronizationQueue;
++import de.danoeh.antennapod.net.sync.serviceinterface.SynchronizationQueueStub;
++import de.danoeh.antennapod.net.sync.serviceinterface.UploadChangesResponse;
++import de.danoeh.antennapod.storage.database.DBReader;
++import de.danoeh.antennapod.storage.database.DBWriter;
++import de.danoeh.antennapod.storage.database.PodDBAdapter;
++import de.danoeh.antennapod.storage.preferences.UserPreferences;
++import java.util.ArrayList;
++import java.util.Date;
++import java.util.List;
++import org.json.JSONArray;
++import org.json.JSONObject;
++import org.junit.After;
++import org.junit.Before;
++import org.junit.Test;
++import org.junit.runner.RunWith;
++import org.robolectric.RobolectricTestRunner;
++import org.robolectric.RuntimeEnvironment;
++import org.robolectric.annotation.Config;
++import static org.junit.Assert.assertEquals;
++import static org.junit.Assert.assertFalse;
++import static org.junit.Assert.assertTrue;
++import static org.junit.Assert.fail;
++
++@RunWith(RobolectricTestRunner.class)
++@Config(sdk = 28)
++public class QueueSynchronizerTest {
++    private Context context;
++    private Feed feed;
++    private FakeProvider provider;
++
++    @Before
++    public void setUp() {
++        context = RuntimeEnvironment.getApplication();
++        UserPreferences.init(context);
++        PodDBAdapter.init(context);
++        PodDBAdapter.deleteDatabase();
++        PodDBAdapter adapter = PodDBAdapter.getInstance();
++        adapter.open();
++        adapter.close();
++        SynchronizationQueue.setInstance(new SynchronizationQueueStub());
++        context.getSharedPreferences("vonqueue_v1", Context.MODE_PRIVATE).edit().clear().commit();
++        feed = new Feed("https://example.test/feed", null, "Test");
++        provider = new FakeProvider();
++    }
++
++    @After
++    public void tearDown() {
++        DBWriter.tearDownTests();
++    }
++
++    private FeedItem stored(String id) throws Exception {
++        FeedItem item = new FeedItem();
++        item.setFeed(feed);
++        item.setTitle(id);
++        item.setItemIdentifier(id);
++        item.setPubDate(new Date(1700000000000L));
++        item.setPlayed(false);
++        FeedMedia media = new FeedMedia(item, "https://example.test/" + id + ".mp3", 0, "audio/mpeg");
++        media.setDuration(180000);
++        media.setPosition(12500);
++        item.setMedia(media);
++        DBWriter.setFeedItem(item, false).get();
++        return item;
++    }
++
++    private JSONObject remote(String id) throws Exception {
++        return new JSONObject().put("podcast", "https://example.test/feed")
++                .put("episode", "https://example.test/" + id + ".mp3")
++                .put("guid", id).put("title", id).put("podcast_title", "Test")
++                .put("published", 1700000000).put("duration", 180);
++    }
++
++    private void response(long revision, JSONObject... items) throws Exception {
++        JSONArray array = new JSONArray();
++        for (JSONObject item : items) {
++            array.put(item);
++        }
++        provider.reply = new JSONObject().put("protocol", "vonqueue-v1")
++                .put("revision", revision).put("items", array);
++    }
++
++    private List<String> queueGuids() {
++        List<String> ids = new ArrayList<>();
++        for (FeedItem item : DBReader.getQueue()) {
++            ids.add(item.getItemIdentifier());
++        }
++        return ids;
++    }
++
++    @Test
++    public void restoresExactOrderAndArchivedUnplayedEpisode() throws Exception {
++        FeedItem a = stored("A");
++        FeedItem b = stored("B");
++        assertTrue(DBWriter.setQueueForSync(List.of(a, b), List.of()).get());
++        response(7, remote("B"), remote("ARCHIVED"), remote("A"));
++        assertTrue(new QueueSynchronizer(context, provider).synchronize());
++        assertEquals(List.of("B", "ARCHIVED", "A"), queueGuids());
++        assertTrue(provider.sent.isNull("base_revision"));
++        assertEquals(2, provider.sent.getJSONArray("items").length());
++        FeedItem restored = DBReader.getFeedItemByGuidOrEpisodeUrl("ARCHIVED", "https://example.test/ARCHIVED.mp3");
++        assertFalse(restored.isPlayed());
++        assertEquals(180000, restored.getMedia().getDuration());
++        assertEquals(12500, DBReader.getFeedItem(a.getId()).getMedia().getPosition());
++        response(8, remote("ARCHIVED"), remote("A"));
++        assertFalse(new QueueSynchronizer(context, provider).synchronize());
++        assertEquals(7, provider.sent.getLong("base_revision"));
++        assertEquals(List.of("ARCHIVED", "A"), queueGuids());
++    }
++
++    @Test
++    public void propagatesAnExplicitEmptyQueue() throws Exception {
++        FeedItem a = stored("A");
++        assertTrue(DBWriter.setQueueForSync(List.of(a), List.of()).get());
++        response(1);
++        new QueueSynchronizer(context, provider).synchronize();
++        assertEquals(List.of(), queueGuids());
++    }
++
++    @Test
++    public void preservesQueueEditsWhileRequestIsInFlight() throws Exception {
++        FeedItem a = stored("A");
++        FeedItem b = stored("B");
++        assertTrue(DBWriter.setQueueForSync(List.of(a), List.of()).get());
++        response(1, remote("A"));
++        provider.duringRequest = () -> {
++            try {
++                assertTrue(DBWriter.setQueueForSync(List.of(b), List.of(a.getId())).get());
++            } catch (Exception e) {
++                throw new IllegalStateException(e);
++            }
++        };
++        try {
++            new QueueSynchronizer(context, provider).synchronize();
++            fail("Concurrent queue edit should require retry");
++        } catch (SyncServiceException expected) {
++            assertEquals(List.of("B"), queueGuids());
++            assertFalse(context.getSharedPreferences("vonqueue_v1", Context.MODE_PRIVATE).contains("test-scope"));
++        }
++    }
++
++    @Test
++    public void validatesWholeResponseBeforeChangingQueue() throws Exception {
++        FeedItem a = stored("A");
++        assertTrue(DBWriter.setQueueForSync(List.of(a), List.of()).get());
++        response(1, remote("NEW"), remote("BAD").put("episode", "file:///etc/passwd"));
++        try {
++            new QueueSynchronizer(context, provider).synchronize();
++            fail("Invalid response should fail");
++        } catch (SyncServiceException expected) {
++            assertEquals(List.of("A"), queueGuids());
++        }
++    }
++
++    private static class FakeProvider implements ISyncService {
++        private JSONObject sent;
++        private JSONObject reply;
++        private Runnable duringRequest;
++        @Override public void login() { }
++        @Override public void logout() { }
++        @Override public SubscriptionChanges getSubscriptionChanges(long lastSync) { return null; }
++        @Override public UploadChangesResponse uploadSubscriptionChanges(List<String> add, List<String> remove) { return null; }
++        @Override public EpisodeActionChanges getEpisodeActionChanges(long lastSync) { return null; }
++        @Override public UploadChangesResponse uploadEpisodeActions(List<EpisodeAction> actions) { return null; }
++        @Override public String queueSyncScope() { return "test-scope"; }
++        @Override public JSONObject syncQueue(JSONObject payload) {
++            sent = payload;
++            if (duringRequest != null) {
++                duringRequest.run();
++            }
++            return reply;
++        }
++    }
++}

@@ -1,0 +1,53 @@
+Validation performed on 2026-11-20
+
+PASS — PHP syntax for every server PHP file.
+PASS — HTTP integration suite with PHP 8.4.28 + MariaDB 10.11.18 (InnoDB).
+PASS — Same suite with SQLite, used for isolated test/reproduction support.
+The suite runs four PHP HTTP workers and covers:
+  - Basic login, session cookies, logout, account isolation and devices.
+  - Subscription add/remove and shared-device listing.
+  - Full upload of 10,661 episode actions in 30-action batches.
+  - Download of all uploaded actions, retry deduplication and cursor overlap.
+  - Rejection of missing podcast URLs and malformed queue requests.
+  - First-connect queue union, reordered queues, insertion between existing
+    entries, insertion at front, removals, explicit clear, stale revisions,
+    simultaneous additions and preservation of other-device changes.
+  - Empty newly connected devices do not clear the shared queue.
+  - Episode URL fallback identity remains stable when a feed has no GUID.
+
+PASS — Kasts 26.08.3 with all patches configured and fully compiled locally
+with CMake/Ninja, Release configuration, installed Qt/KDE development libraries.
+PASS — Real compiled QueueSyncJob and QueueModel code linked into an isolated
+Qt test harness and connected to the actual PHP server: upload, exact reorder,
+archived episode creation, removal and explicit clear. Existing playback
+position remained unchanged. Test data/configuration were separate from Kasts.
+PASS — Repair on an in-memory copy of the captured Kasts database recovered all
+10,661 blank podcast URLs. Every other pending-action field was unchanged.
+The corrected full-push SELECT returned 13,188 entries with feed URLs.
+PASS — Original missing-placeholder regression was checked with Qt's SQLite driver.
+PASS — Three Kasts patches apply with --fuzz=0 to the official source archive;
+the resulting source matches the compiled source. Recipe passes bash -n.
+
+PASS — AntennaPod :app:assembleDebug, both free and play variants.
+Delivered APK: free/debug, version 3.12.3-vonqueue.1, Android API 23 minimum.
+PASS — :net:sync:service:test: 44 test executions, 0 failures, 0 errors
+(11 tests across free/play and debug/release variants).
+The four added queue tests per variant cover exact order, restoring archived
+unplayed episodes, preserving existing playback position, revision persistence,
+explicit empty queues, edits during an in-flight request, and invalid responses.
+These are Robolectric Android/database tests with a fake network provider.
+PASS — Complete AntennaPod patch applies to the pinned clean upstream commit
+and produces the same source used for the APK.
+PASS — APK signatures v1/v2 verified with apksigner; package and label verified
+with aapt. Package: de.danoeh.antennapod.vonqueue; label: AntennaPod Queue Sync.
+
+Boundaries:
+- The desktop's installed Kasts remains 26.08.3 release 2. The updated recipe
+  is release 3, but no package installation or live database repair was run.
+- Your LAMP/Apache machine was not accessed or configured. The HTTP integration
+  tests used PHP's local development server, not your Apache/PHP handler.
+- No physical Android device was available. APK installation, your imported
+  phone library, actual audio playback and Android background behavior still
+  need a real-device check.
+- No full physical-phone-to-desktop deployment test has been claimed.
+- MySQL 8 schema compatibility is intended; the live SQL server test used MariaDB.

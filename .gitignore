@@ -1,0 +1,6 @@
+/server/config/config.php
+/server/config/*
+!/server/config/config.example.php
+/server/var/
+*.bak
+*.bak.*

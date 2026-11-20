@@ -1,0 +1,170 @@
+VON PODCAST SYNC 1.0.0 — LAMP setup
+
+This is a personal gpodder-compatible PHP server with an ordered-queue extension.
+Use the patched Kasts and the included AntennaPod Queue Sync APK for queue sync.
+Stock clients can use subscription/playback endpoints but cannot share the queue.
+No Nextcloud, Docker, Composer, Android Studio, or cron job is required.
+
+1. DEPLOY THE PHP SERVER
+
+Requirements: Apache 2.4 with mod_rewrite, PHP 8.1+ with PDO, pdo_mysql,
+session and JSON support, and MariaDB/MySQL with InnoDB. PHP 8.4.28 and
+MariaDB 10.11.18 were tested. MySQL 8 is supported by the schema but was not tested.
+
+Copy ONLY the server/ directory to /var/www/podsync on your LAMP machine.
+Keep clients/, sources/, and this ZIP outside the web root.
+Point an Apache virtual host's DocumentRoot at /var/www/podsync/public.
+An example configuration is in docs/apache-vhost.conf.
+Use your existing PHP handler (mod_php or PHP-FPM). Enable mod_rewrite.
+AllowOverride All is needed for the supplied public/.htaccess.
+
+A dedicated hostname such as podcasts.home.arpa is easiest; make it resolve
+on both your desktop and Android phone using your LAN DNS. A LAN IP with a
+dedicated virtual host/port also works. Include http:// or https:// in both apps.
+Use HTTPS with a certificate trusted by both devices; HTTP is supported for
+a trusted LAN but sends account credentials without transport encryption.
+Use a password dedicated to this sync account.
+
+Create a database and database user using your normal MySQL administration tool.
+Example SQL (replace the database password before executing):
+
+  CREATE DATABASE podcast_sync CHARACTER SET utf8mb4 COLLATE utf8mb4_bin;
+  CREATE USER 'podcast_sync'@'localhost' IDENTIFIED BY 'REPLACE_WITH_DB_PASSWORD';
+  GRANT ALL PRIVILEGES ON podcast_sync.* TO 'podcast_sync'@'localhost';
+
+Copy server/config/config.example.php to server/config/config.php.
+Set dsn, db_user and db_password for that database. Leave base_path as ''
+when DocumentRoot points to public/. This database password is separate from
+what you will enter in Kasts and AntennaPod.
+
+Make config.php readable by PHP and keep it outside DocumentRoot.
+Make server/var writable by the Apache/PHP user. On Debian/Ubuntu that user is
+usually www-data; substitute your actual PHP user on other distributions.
+Example, after copying to /var/www/podsync:
+
+  sudo chown root:www-data /var/www/podsync/config/config.php
+  sudo chmod 640 /var/www/podsync/config/config.php
+  sudo install -d -m 700 -o www-data -g www-data /var/www/podsync/var
+  sudo -u www-data php /var/www/podsync/bin/manage.php install
+  sudo -u www-data php /var/www/podsync/bin/manage.php add-user von
+
+The last command prompts for an account password of at least 12 characters.
+Use that same username/password in both apps, with different device names.
+There is no public registration page and no preconfigured password.
+
+Reload Apache with your server's normal service command after checking its
+configuration. Open http(s)://YOUR-SERVER/health. It must return JSON containing
+"service":"Von Podcast Sync" and "queue_protocol":"vonqueue-v1".
+The root URL returns JSON too; this service has no web dashboard.
+
+If using an existing site's subdirectory instead, an Apache Alias is provided
+in docs/apache-subdirectory.conf. Set base_path='/podsync' and use
+http(s)://YOUR-SERVER/podsync in BOTH clients. Do not enter /api/2 or /index.php.
+
+2. INSTALL THE MODIFIED KASTS
+
+The local recipe /sources/Voncloft-OS-dev/kde-apps/kasts/spkgbuild has already
+been updated to 26.08.3 release 3. It applies all three bundled patches.
+The desktop's currently installed Kasts has NOT been replaced.
+
+Build/install the updated recipe on the desktop:
+
+  sudo scratch install kasts -r -n
+
+Fully quit and reopen Kasts after installation. A running old process keeps
+using its old code even after files have been replaced.
+
+On another VonOS checkout, copy the four files from clients/kasts/ into its
+kde-apps/kasts/ directory first. Build instructions for other Linux systems
+are in docs/BUILD.txt.
+
+The SQL fixes include the missing durationdb placeholder, selection of the
+correct feed URL, and recovery of already pending actions with blank podcast
+URLs when the next synchronization reads them. No manual database edit is needed.
+
+3. CONNECT KASTS — THE CUSTOM SERVER OPTION IS INSIDE LOGIN
+
+Open Settings -> Synchronization.
+Select gpodder.net, then Log In.
+Check "Use custom server" in that login dialog.
+Enter your server's base URL in "Hostname", for example:
+
+  https://podcasts.home.arpa
+
+Enter the account created above. Choose/create a device such as kasts-desktop.
+If logged into the old provider, log out first to reopen the login dialog.
+The Nextcloud option is for a different protocol; use gpodder.net for this server.
+All devices belonging to one account share subscriptions automatically.
+
+4. INSTALL ANTENNAPOD ON ANDROID — NO DEVELOPMENT TOOLS NEEDED
+
+Copy clients/antennapod/AntennaPod-Queue-Sync-3.12.3.apk to your phone and open it.
+Allow installation from that file manager/browser when Android prompts.
+It appears as "AntennaPod Queue Sync", package de.danoeh.antennapod.vonqueue.
+It installs beside stock AntennaPod and does not overwrite the stock app.
+Android 6.0 or newer is required. This is a locally signed debug build, not an
+upstream/store release, and will not receive stock AntennaPod updates.
+
+To retain your existing Android library and queue:
+- In stock AntennaPod, export a DATABASE backup under Settings -> Storage ->
+  Import/Export. OPML exports subscriptions only, so it is insufficient here.
+- Import that database backup in AntennaPod Queue Sync. This replaces the new
+  app's local library. Keep stock AntennaPod and the backup until verified.
+- In the new app, open Settings -> Synchronization -> gpodder.net.
+  Set the custom server address, then log in using the same account as Kasts.
+  Choose a distinct device such as antennapod-phone.
+- If imported settings point at the old service, log out/change that server
+  before syncing. Use the modified app for your shared queue thereafter.
+
+5. FIRST SYNC AND DAILY USE
+
+Back up the existing queues before the first sync. On the empty new server,
+sync Kasts first (use its full upload/push option to seed existing playback
+history), wait for success, then sync AntennaPod Queue Sync, then Kasts again.
+
+First connection merges each device's queue without clearing the server queue.
+The already uploaded server order comes first; new items from the second device
+are appended. An empty newly connected device does not erase the other queue.
+If you want only the desktop's queue, start the new Android app with an empty
+queue before its first connection. Do not clear your stock app to achieve this.
+
+After both have synced successfully, adding, removing, clearing and rearranging
+items are shared on normal/full sync. Press Sync after changing the queue, then
+Sync on the other device. The existing periodic/feed-refresh sync can do this
+as well; queue edits are not an instant push-notification service. Kasts' quick
+playback-only upload does not exchange the queue.
+
+When both devices changed offline, removals made against their last shared
+version are respected and new additions are merged. A later explicit reorder
+wins for its ordered items; items added only on the other device are retained.
+Run another sync on each device to converge after simultaneous edits.
+
+Old queued episodes missing from the current RSS feed are restored from queue
+metadata. Newly restored episodes trigger a full playback-state download.
+Audio files are not copied between devices; each app downloads/streams them
+from the publisher. A publisher removing the media URL can still make it unplayable.
+Played/unplayed status is independent of queue membership. Remote playback
+updates do not invent or remove queue entries when this server supports queues.
+
+A queue edit during a request is retained locally and reported as requiring
+another sync. Sync again; the revision is only saved after the local queue saves.
+Do not reset/recreate the server database while keeping old client revisions.
+If restoring a server backup gives "revision is newer than this server", use
+a new device name on each app to establish new baselines, then sync again.
+
+6. BACKUPS / TROUBLESHOOTING
+
+Back up the MySQL database and config/config.php. Queue revision history is kept
+so devices returning after a long offline period can merge safely. It grows
+with queue changes; do not manually delete history while clients still use it.
+Server/var/sessions contains disposable login sessions, not the podcast library.
+
+401: check the app account and password, and that Apache forwards Authorization.
+404 on API routes: check DocumentRoot, mod_rewrite, AllowOverride and base_path.
+500: verify PDO MySQL, database credentials/tables, and writable session directory.
+403: check Apache Directory permissions and filesystem directory traversal rights.
+The health URL itself needs a valid database connection.
+
+The automated tests passed locally. Deployment on your Apache server and
+installation/playback on your physical Android phone remain to be verified.
+See docs/VALIDATION.txt for exactly what was tested.
