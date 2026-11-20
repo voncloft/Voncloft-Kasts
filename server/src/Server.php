@@ -290,7 +290,10 @@ final class Server {
         if ($base!=='' && str_starts_with($path,$base.'/')) { $path=substr($path,strlen($base)); }
         if ($path==='/' || $path==='/health') {
             if ($method!=='GET') { throw new HttpError(405,'Method not allowed.'); }
-            self::output(['service'=>'Von Podcast Sync','version'=>'1.0.0','api'=>'gpodder-2','queue_protocol'=>'vonqueue-v1']);
+            require_once __DIR__.'/PodcastLibrary.php';
+            try { $transport=PodcastLibrary::transport(); } catch (HttpError $e) { $transport='unavailable'; }
+            self::output(['service'=>'Von Podcast Sync','version'=>'1.1.1','api'=>'gpodder-2','queue_protocol'=>'vonqueue-v1','web_player'=>true,
+                'feed_transport'=>$transport,'feed_parser'=>class_exists('DOMDocument')?'DOM':'unavailable']);
         }
         if ($path==='/api/2/queue-capabilities.json' && $method==='GET') {
             self::output(['protocol'=>'vonqueue-v1','ordered_queue'=>true,'three_way_merge'=>true]);
@@ -301,10 +304,29 @@ final class Server {
             if ($m[2]==='logout') { $this->session(); $_SESSION=[]; session_destroy(); }
             self::output((object)[]);
         }
-        if (!preg_match('#^/api/2/(devices|subscriptions|episodes|sync-devices|queue)/([^/]+?)(?:/([^/]+))?\.json$#D',$path,$m)) {
+        if (!preg_match('#^/api/2/(devices|subscriptions|episodes|sync-devices|queue|library|discover)/([^/]+?)(?:/([^/]+))?\.json$#D',$path,$m)) {
             throw new HttpError(404,'Endpoint not found.');
         }
         $user=$this->authenticate($m[2]); $uid=(int)$user['id']; $kind=$m[1]; $device=$m[3]??null;
+        if ($kind==='discover' && $device===null && $method==='GET') {
+            $term=$_GET['q']??'';
+            if (!is_string($term)) { throw new HttpError(400,'Invalid podcast search.'); }
+            require_once __DIR__.'/PodcastLibrary.php';
+            $library=new PodcastLibrary($this->config['feed_cache_path'] ?? dirname($this->config['session_path']).'/feeds');
+            self::output($library->search($term));
+        }
+        if ($kind==='library' && $device===null && $method==='GET') {
+            $feed=self::url($_GET['feed'] ?? null);
+            $sub=$this->query('SELECT active FROM ps_subscriptions WHERE user_id=? AND url_hash=?',[$uid,hash('sha256',$feed)])->fetchColumn();
+            $queued=false;
+            foreach (json_decode($user['queue_json'],true,64,JSON_THROW_ON_ERROR) as $item) { if ($item['podcast']===$feed) { $queued=true; break; } }
+            if ((int)$sub!==1 && !$queued) { throw new HttpError(403,'Subscribe to this podcast before browsing its episodes.'); }
+            require_once __DIR__.'/PodcastLibrary.php';
+            $library=new PodcastLibrary($this->config['feed_cache_path'] ?? dirname($this->config['session_path']).'/feeds');
+            $result=$library->get($feed,($_GET['refresh']??'')==='1');
+            if (($_GET['summary']??'')==='1') { unset($result['episodes']); }
+            self::output($result);
+        }
         if ($kind==='subscriptions' && $device!==null) { $this->subscriptions($uid,$device,$method); }
         if ($kind==='episodes' && $device===null) { $this->episodes($uid,$method); }
         if ($kind==='devices') {
