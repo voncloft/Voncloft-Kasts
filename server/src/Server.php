@@ -335,12 +335,26 @@ final class Server {
         $path=rawurldecode((string)parse_url($_SERVER['REQUEST_URI'],PHP_URL_PATH));
         $base=rtrim((string)($this->config['base_path'] ?? ''),'/');
         if ($base!=='' && str_starts_with($path,$base.'/')) { $path=substr($path,strlen($base)); }
+        if (in_array($path, ['/dashboard', '/dashboard/', '/dashboard/index.php'], true)) {
+            if ($method!=='GET') { throw new HttpError(405,'Method not allowed.'); }
+            if ($path==='/dashboard') { header('Location: '.$base.'/dashboard/',true,302); exit; }
+            require dirname(__DIR__).'/public/dashboard/index.php';
+            exit;
+        }
         if ($path==='/' || $path==='/health') {
             if ($method!=='GET') { throw new HttpError(405,'Method not allowed.'); }
             require_once __DIR__.'/PodcastLibrary.php';
             try { $transport=PodcastLibrary::transport(); } catch (HttpError $e) { $transport='unavailable'; }
-            self::output(['service'=>'Von Podcast Sync','version'=>'1.1.3','api'=>'gpodder-2','queue_protocol'=>'vonqueue-v1','web_player'=>true,'presence_protocol'=>'vonpresence-v1',
+            self::output(['service'=>'Von Podcast Sync','version'=>'1.1.5','api'=>'gpodder-2','queue_protocol'=>'vonqueue-v1','web_player'=>true,'presence_protocol'=>'vonpresence-v1',
                 'feed_transport'=>$transport,'feed_parser'=>class_exists('DOMDocument')?'DOM':'unavailable']);
+        }
+        if ($path==='/api/2/session.json') {
+            if ($method!=='GET') { throw new HttpError(405,'Method not allowed.'); }
+            $this->session();
+            $uid=(int)($_SESSION['uid']??0);
+            session_write_close();
+            $name=$uid ? $this->query('SELECT username FROM ps_users WHERE id=?',[$uid])->fetchColumn() : false;
+            self::output($name ? ['authenticated'=>true,'username'=>$name] : ['authenticated'=>false]);
         }
         if ($path==='/api/2/queue-capabilities.json' && $method==='GET') {
             self::output(['protocol'=>'vonqueue-v1','ordered_queue'=>true,'three_way_merge'=>true]);
@@ -348,7 +362,7 @@ final class Server {
         if (preg_match('#^/api/2/auth/([^/]+)/(login|logout)\.json$#D',$path,$m)) {
             if ($method!=='POST') { throw new HttpError(405,'Method not allowed.'); }
             $this->authenticate($m[1],$m[2]==='login');
-            if ($m[2]==='logout') { $this->session(); $_SESSION=[]; session_destroy(); }
+            if ($m[2]==='logout') { $this->session(); $_SESSION=[]; $cookie=session_get_cookie_params(); unset($cookie['lifetime']); header_remove('Set-Cookie'); setcookie(session_name(),'',array_merge($cookie,['expires'=>time()-3600])); session_destroy(); }
             self::output((object)[]);
         }
         if (!preg_match('#^/api/2/(devices|subscriptions|episodes|sync-devices|queue|library|discover|presence)/([^/]+?)(?:/([^/]+))?\.json$#D',$path,$m)) {
@@ -368,15 +382,14 @@ final class Server {
             $sub=$this->query('SELECT active FROM ps_subscriptions WHERE user_id=? AND url_hash=?',[$uid,hash('sha256',$feed)])->fetchColumn();
             $queued=false;
             foreach (json_decode($user['queue_json'],true,64,JSON_THROW_ON_ERROR) as $item) { if ($item['podcast']===$feed) { $queued=true; break; } }
-            if ((int)$sub!==1 && !$queued) { throw new HttpError(403,'Subscribe to this podcast before browsing its episodes.'); }
+            if ((int)$sub!==1 && !$queued && ($_GET['preview']??'')!=='1') { throw new HttpError(403,'Subscribe to this podcast before browsing its episodes.'); }
             require_once __DIR__.'/PodcastLibrary.php';
             $library=new PodcastLibrary($this->config['feed_cache_path'] ?? dirname($this->config['session_path']).'/feeds');
             $result=$library->get($feed,($_GET['refresh']??'')==='1');
             $result['latest_episode'] = max([0, ...array_map(static fn($episode) => (int)($episode['published']??0), $result['episodes']??[])]);
             if (($_GET['summary']??'')==='1') {
-                // Identity only: the browser can update counts from synced actions
-                // without downloading every episode description on every sync.
-                $result['episode_index'] = array_map(static fn($episode) => [$episode['guid']??'', $episode['episode']], $result['episodes']??[]);
+                // Keep counts and title search available without episode descriptions.
+                $result['episode_index'] = array_map(static fn($episode) => [$episode['guid']??'', $episode['episode'], $episode['title']??'', (int)($episode['published']??0), (int)($episode['duration']??0)], $result['episodes']??[]);
                 unset($result['episodes']);
             }
             self::output($result);

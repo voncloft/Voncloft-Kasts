@@ -11,8 +11,8 @@ header('Cache-Control: no-store');
   <meta name="referrer" content="no-referrer">
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; connect-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: http: https:; media-src 'self' http: https:; base-uri 'none'; form-action 'none'">
   <title>Podcast Sync · Listen together</title>
-  <link rel="stylesheet" href="app.css?v=1.1.3">
-  <script src="app.js?v=1.1.3" defer></script>
+  <link rel="stylesheet" href="app.css?v=1.1.5">
+  <script src="app.js?v=1.1.5" defer></script>
 </head>
 <body>
 <div class="shell">
@@ -27,7 +27,12 @@ header('Cache-Control: no-store');
       <button type="button" data-view="devices" class="nav-item"><span aria-hidden="true">▣</span>Devices</button>
       <button type="button" data-view="activity" class="nav-item"><span aria-hidden="true">◷</span>Playback history</button>
     </nav>
-    <div class="sidebar-footer">Your server. Your library.<span class="muted">Listen here. Pick up anywhere.</span></div>
+    <div class="sidebar-bottom">
+      <a id="latest-apk" class="app-download" href="../downloads/AntennaPod-Queue-Sync-3.12.3-3.apk" download>
+        <span>Latest Android APK</span><strong>3.12.3-vonqueue.3</strong><span class="app-download-note">AntennaPod Queue Sync · Download</span>
+      </a>
+      <div class="sidebar-footer">Your server. Your library.<span class="muted">Listen here. Pick up anywhere.</span></div>
+    </div>
   </aside>
   <main>
     <header class="topbar"><span id="server-name" class="server-name"></span><div id="account-controls" class="account-controls" hidden><span id="account-name"></span><button id="sign-out" class="text-button" type="button">Sign out</button></div></header>
@@ -40,18 +45,18 @@ header('Cache-Control: no-store');
         <label for="password">Password</label><input id="password" name="password" type="password" autocomplete="current-password" maxlength="1024" required>
         <button id="sign-in" type="submit" class="primary-button">Open my library</button>
         <p id="login-error" class="error-text" role="alert" hidden></p>
-        <p class="login-note">Use the same account as your apps. Your password stays in this tab’s memory until you sign out or close it.</p>
+        <p class="login-note">Use the same account as your apps. A session cookie keeps you signed in when you refresh. Sign out when you are done on a shared computer.</p>
       </form>
     </section>
     <section id="dashboard" hidden>
-      <div class="page-heading"><div><div class="eyebrow">PODCAST SYNC</div><h1 id="page-title">Your library, together.</h1><p id="page-subtitle" class="muted">A little of everything you love listening to.</p></div><div class="refresh-area"><button id="refresh" class="secondary-button" type="button">Refresh</button><span id="updated-at" class="small muted"></span></div></div>
+      <div class="page-heading"><div><button id="page-back" type="button" class="back-button" hidden><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false"><path d="M20 12H4m7-7-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Back</span></button><div class="eyebrow">PODCAST SYNC</div><h1 id="page-title">Your library, together.</h1><p id="page-subtitle" class="muted">A little of everything you love listening to.</p></div><div class="refresh-area"><button id="refresh" class="secondary-button" type="button">Refresh</button><span id="updated-at" class="small muted"></span></div></div>
       <p id="dashboard-error" class="error-banner" role="alert" hidden></p>
       <p id="notice" class="notice" role="status" hidden></p>
       <div id="stats" class="stats">
-        <article class="stat-card"><span class="stat-label">Subscriptions</span><strong id="stat-subscriptions">0</strong><span class="stat-detail">Podcasts in your library</span></article>
-        <article class="stat-card accent"><span class="stat-label">Up next</span><strong id="stat-queue">0</strong><span id="stat-duration" class="stat-detail">In your shared queue</span></article>
-        <article class="stat-card"><span class="stat-label">Devices</span><strong id="stat-devices">0</strong><span class="stat-detail">Registered sync identities</span></article>
-        <article class="stat-card"><span class="stat-label">Playback updates</span><strong id="stat-actions">0</strong><span class="stat-detail">Latest saved episode updates</span></article>
+        <button type="button" class="stat-card" data-view="subscriptions"><span class="stat-label">Subscriptions</span><strong id="stat-subscriptions">0</strong><span class="stat-detail">Podcasts in your library</span></button>
+        <button type="button" class="stat-card accent" data-view="queue"><span class="stat-label">Up next</span><strong id="stat-queue">0</strong><span id="stat-duration" class="stat-detail">In your shared queue</span></button>
+        <button type="button" class="stat-card" data-view="devices"><span class="stat-label">Devices</span><strong id="stat-devices">0</strong><span class="stat-detail">Registered sync identities</span></button>
+        <button type="button" class="stat-card" data-view="activity"><span class="stat-label">Playback updates</span><strong id="stat-actions">0</strong><span class="stat-detail">Latest saved episode updates</span></button>
       </div>
       <div id="overview-view">
         <div class="overview-grid"><section class="surface"><div class="section-heading"><div><span class="eyebrow">READY WHEN YOU ARE</span><h2>Your listening queue</h2></div><button class="text-button" type="button" data-view="queue">View all</button></div><div id="queue-preview"></div></section><section class="surface"><div class="section-heading"><div><span class="eyebrow">LAST HEARD</span><h2>Recent playback</h2></div><button class="text-button" type="button" data-view="activity">View all</button></div><div id="activity-preview"></div></section></div>
@@ -63,12 +68,12 @@ header('Cache-Control: no-store');
         <div id="subscription-tools" class="surface add-feed" hidden><form id="subscribe-form"><label for="feed-url">Add a podcast by RSS feed URL</label><div class="inline-form"><input id="feed-url" type="url" placeholder="https://example.com/podcast/rss" required><button type="submit" class="primary-button" data-write>Subscribe</button></div></form></div>
         <div id="podcast-heading" hidden></div>
         <div class="surface detail-surface">
-          <div class="list-toolbar"><label class="search-label" for="search"><span aria-hidden="true">⌕</span><input id="search" type="search" placeholder="Search your library" autocomplete="off"></label><label id="count-control" class="sort-control" for="count-mode" hidden>Count<select id="count-mode" aria-label="Count"><option value="unplayed">Unplayed</option><option value="played">Played</option><option value="total">Total episodes</option><option value="queued">In queue</option><option value="off">Off</option></select></label><label id="sort-control" class="sort-control" for="list-sort" hidden>Order<select id="list-sort" aria-label="Order"><option value="newest">Newest first</option><option value="oldest">Oldest first</option><option id="sort-count-high" value="count-high">Count: highest first</option><option id="sort-count-low" value="count-low">Count: lowest first</option><option id="sort-title" value="title">Title A–Z</option></select></label><span id="result-count" class="small muted"></span><button id="clear-queue" class="danger-button" data-write type="button" hidden>Clear queue</button></div>
+          <div id="list-toolbar" class="list-toolbar"><label class="search-label" for="search"><span aria-hidden="true">⌕</span><input id="search" type="search" aria-label="Search your library" placeholder="Search your library" autocomplete="off"></label><label id="count-control" class="sort-control" for="count-mode" hidden>Count<select id="count-mode" aria-label="Count"><option value="unplayed">Unplayed</option><option value="played">Played</option><option value="total">Total episodes</option><option value="queued">In queue</option><option value="off">Off</option></select></label><label id="sort-control" class="sort-control" for="list-sort" hidden>Order<select id="list-sort" aria-label="Order"><option value="newest">Newest first</option><option value="oldest">Oldest first</option><option id="sort-count-high" value="count-high">Count: highest first</option><option id="sort-count-low" value="count-low">Count: lowest first</option><option id="sort-title" value="title">Title A–Z</option></select></label><span id="result-count" class="small muted"></span><button id="clear-queue" class="danger-button" data-write type="button" hidden>Clear queue</button></div>
           <p id="list-note" class="list-note"></p><div id="list-content"></div>
           <div class="load-more-wrap"><button id="load-more" class="secondary-button" type="button" hidden>Show more</button></div>
         </div>
       </section>
-      <footer class="page-footer">Podcast Sync 1.1.3 <span aria-hidden="true">·</span> Audio streams directly from its publisher</footer>
+      <footer class="page-footer">Podcast Sync 1.1.5 <span aria-hidden="true">·</span> Audio streams directly from its publisher</footer>
     </section>
     <div id="status" class="sr-only" role="status" aria-live="polite"></div>
   </main>
