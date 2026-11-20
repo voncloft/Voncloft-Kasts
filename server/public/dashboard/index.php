@@ -11,8 +11,8 @@ header('Cache-Control: no-store');
   <meta name="referrer" content="no-referrer">
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; connect-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: http: https:; media-src 'self' http: https:; base-uri 'none'; form-action 'none'">
   <title>Podcast Sync · Listen together</title>
-  <link rel="stylesheet" href="app.css?v=1.1.5">
-  <script src="app.js?v=1.1.5" defer></script>
+  <link rel="stylesheet" href="app.css?v=1.1.6">
+  <script src="app.js?v=1.1.6" defer></script>
 </head>
 <body>
 <div class="shell">
@@ -35,7 +35,7 @@ header('Cache-Control: no-store');
     </div>
   </aside>
   <main>
-    <header class="topbar"><span id="server-name" class="server-name"></span><div id="account-controls" class="account-controls" hidden><span id="account-name"></span><button id="sign-out" class="text-button" type="button">Sign out</button></div></header>
+    <header class="topbar"><span id="server-name" class="server-name"></span><div id="account-controls" class="account-controls" hidden><button id="account-name" type="button" class="account-button" data-view="account" title="Account settings"></button><button id="sign-out" class="text-button" type="button">Sign out</button></div></header>
     <section id="login-screen" class="login-wrap">
       <div class="eyebrow">WELCOME HOME</div><h1>Your podcasts.<br>Your place.</h1>
       <p class="intro">Browse, queue, and listen. Your library stays connected to Kasts and AntennaPod.</p>
@@ -63,6 +63,19 @@ header('Cache-Control: no-store');
         <section class="library-preview"><div class="section-heading"><h2>Find your next listen</h2><button class="text-button" type="button" data-view="subscriptions">All subscriptions</button></div><div id="feed-preview" class="feed-grid"></div></section>
         <div class="sync-note"><strong>One account. One shared library.</strong><p>Web changes save to your server immediately. Kasts and AntennaPod receive them on their next sync. This page checks for changes every 30 seconds while visible.</p></div>
       </div>
+      <section id="account-view" class="surface account-settings" hidden>
+        <h2>Change password</h2>
+        <p class="muted">Use this password to sign in here and sync Kasts and AntennaPod. After changing it, update the password in both apps. Other signed-in sessions will end.</p>
+        <form id="password-form">
+          <label for="current-password">Current password</label><input id="current-password" type="password" autocomplete="current-password" maxlength="1024" required>
+          <label for="new-password">New password</label><input id="new-password" type="password" autocomplete="new-password" minlength="12" maxlength="72" aria-describedby="password-help" required>
+          <p id="password-help" class="small muted">Use at least 12 characters. The maximum is 72 UTF-8 bytes; some characters use more than one byte.</p>
+          <label for="confirm-password">Confirm new password</label><input id="confirm-password" type="password" autocomplete="new-password" minlength="12" maxlength="72" required>
+          <button id="change-password" type="submit" class="primary-button" disabled>Change password</button>
+          <p id="password-status" class="notice" role="status" hidden></p>
+          <p id="password-error" class="error-text" role="alert" hidden></p>
+        </form>
+      </section>
       <section id="detail-view" hidden>
         <div id="discover-tools" class="surface add-feed" hidden><form id="discover-form"><label for="discover-query">Search podcasts by name, topic, or creator</label><div class="inline-form"><input id="discover-query" type="search" placeholder="Search podcasts" minlength="2" maxlength="160" required><button id="discover-submit" type="submit" class="primary-button">Search</button></div><p id="discover-error" class="error-text" role="alert" hidden></p></form></div>
         <div id="subscription-tools" class="surface add-feed" hidden><form id="subscribe-form"><label for="feed-url">Add a podcast by RSS feed URL</label><div class="inline-form"><input id="feed-url" type="url" placeholder="https://example.com/podcast/rss" required><button type="submit" class="primary-button" data-write>Subscribe</button></div></form></div>
@@ -73,7 +86,7 @@ header('Cache-Control: no-store');
           <div class="load-more-wrap"><button id="load-more" class="secondary-button" type="button" hidden>Show more</button></div>
         </div>
       </section>
-      <footer class="page-footer">Podcast Sync 1.1.5 <span aria-hidden="true">·</span> Audio streams directly from its publisher</footer>
+      <footer class="page-footer">Podcast Sync 1.1.6 <span aria-hidden="true">·</span> Audio streams directly from its publisher</footer>
     </section>
     <div id="status" class="sr-only" role="status" aria-live="polite"></div>
   </main>

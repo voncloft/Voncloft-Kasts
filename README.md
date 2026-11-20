@@ -12,21 +12,23 @@ The website is called **Podcast Sync**. Open `/dashboard/` on your server and si
 - **Discover:** searches Apple Podcasts by show name, topic, or creator. Click a thumbnail or title to preview a podcast and its episodes without subscribing. Subscribe remains a separate choice on both the search card and the podcast page.
 - **Back navigation:** the on-page Back button with an arrow icon and browser Back return to the saved results, query, filter, visible item count, and scroll position. Browser Forward reopens the podcast.
 - **Web playback:** streams audio from the publisher, saves listening progress, supports playback speed and skip controls, and can continue through the selected listening list. Finishing an episode on the website removes it from the shared queue if it is queued.
-- **Shared queue:** add, remove, clear, and reorder episodes. The stored queue and order are exchanged with the modified desktop and Android clients.
+- **Shared queue:** add, remove, clear, and reorder episodes. Drag the grip beside a queue row to move it freely with a mouse or touch. Earlier/Later buttons and keyboard Up/Down/Home/End are also available. Reordering filtered results preserves hidden episodes. The stored queue and order are exchanged with the modified desktop and Android clients.
 - **Sorting and counts:** sort subscriptions by latest episode date in either direction, title, or count. Thumbnail counts can show Unplayed, Played, Total episodes, In queue, or Off. Episode lists also support newest/oldest ordering.
 - **Devices:** shows registered sync identities and separate live player reports, including episode, playing/paused/stopped state, and position.
 - **Playback history:** shows the latest synced episode-state records. These are not a complete listening-session history or a lifetime listening-time total.
 - **Android download:** the sidebar has a Latest Android APK link with the available custom app version. It downloads from the server's public downloads folder without signing in.
 
+- **Account settings:** click your username beside Sign out to change your sync password. Enter the current password and the new password twice (at least 12 characters, at most 72 UTF-8 bytes). This browser stays signed in; older sessions end. Update Kasts and AntennaPod with the new password. The database password is separate.
+
 ## Versions covered by this update
 
 | Component | Version |
 | --- | --- |
-| Website and server update | **1.1.5** |
+| Website and server update | **1.1.6** |
 | AntennaPod Queue Sync | **3.12.3-vonqueue.3** / Android versionCode **3120397** |
 | Kasts with queue sync and live reporting | **26.08.3, package release 5** |
 
-The features above describe the 1.1.5 update package. Older archives committed to this repository may contain earlier versions; check the website footer or `/health` on your installed server. Updating this README alone does not deploy the application.
+The features above describe the 1.1.6 update package. Older archives committed to this repository may contain earlier versions; check the website footer or `/health` on your installed server. Updating this README alone does not deploy the application.
 
 ## How synchronization works
 
@@ -56,13 +58,13 @@ Your website can use HTTP on your LAN. Publishers may still require HTTPS for fe
 
 ## Updating the existing LAMP installation
 
-Use the supplied **`Podcast-Sync-Web-Player-1.1.5.zip`** update package. On the LAMP server, after copying it into `/tmp`:
+Use the supplied **`Podcast-Sync-Web-Player-1.1.6.zip`** update package. On the LAMP server, after copying it into `/tmp`:
 
 ```bash
 (
 set -e
-unzip -o /tmp/Podcast-Sync-Web-Player-1.1.5.zip -d /tmp/podcast-web-player-1.1.5
-bash /tmp/podcast-web-player-1.1.5/install.sh /media/Websites/kasts_server/server
+unzip -o /tmp/Podcast-Sync-Web-Player-1.1.6.zip -d /tmp/podcast-web-player-1.1.6
+bash /tmp/podcast-web-player-1.1.6/install.sh /media/Websites/kasts_server/server
 curl -fsS http://127.0.0.1:87/health
 )
 ```
@@ -71,7 +73,7 @@ Substitute your own installation path and server address when deploying elsewher
 
 The installer verifies checksums and PHP requirements, backs up the previous application files and README, publishes the Android APK, and prints a rollback command. It does not replace the configuration or database and does not require a database migration. The repository README is installed one directory above `server/`.
 
-Open `http://YOUR-SERVER/dashboard/` and use **Ctrl+Shift+R** once. The footer and `/health` should report **1.1.5**. Sign in once after installing the session update; subsequent refreshes restore your session and current page. If PHP-FPM has an opcode cache with timestamp checks disabled, reload PHP-FPM so it reads the updated PHP files.
+Open `http://YOUR-SERVER/dashboard/` and use **Ctrl+Shift+R** once. The footer and `/health` should report **1.1.6**. Sign in once after installing 1.1.6 to renew the session; subsequent refreshes restore your session and current page. If PHP-FPM has an opcode cache with timestamp checks disabled, reload PHP-FPM so it reads the updated PHP files.
 
 ## Android app and public download folder
 
@@ -102,6 +104,15 @@ In **Kasts**, choose Settings → Synchronization → gpodder.net → Log In, en
 In **AntennaPod Queue Sync**, choose the gpodder.net synchronization provider, enter the same custom server base URL, and use the same sync account. Select or create a device identity, then synchronize. Install the modified Kasts/AntennaPod versions for shared queue support and live reports.
 
 ## Changelog
+
+### Website 1.1.6
+
+- Click the signed-in username to open Account settings and change the sync password.
+- Requires the current password, matching new passwords and a session token; rotates the current session and invalidates older sessions.
+- Queue rows support dragging by their grip, edge scrolling and keyboard Up/Down/Home/End. Earlier/Later controls remain available.
+- Queue moves save through the existing revision-aware shared queue and preserve episodes hidden by filters.
+- No database migration or new Android build is required. Update the saved sync password in each app after changing it.
+
 
 ### Website 1.1.5
 

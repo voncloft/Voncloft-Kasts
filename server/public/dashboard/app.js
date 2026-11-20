@@ -2,9 +2,10 @@
 const $ = id => document.getElementById(id);
 const api = new URL('../api/2/', new URL('.', location.href));
 const device = 'web-player';
-const titles = {overview:'Your library, together.',subscriptions:'Your subscriptions.',discover:'Find your next favorite.',queue:'Up next.',devices:'Your connected apps.',activity:'Your playback records.',podcast:'Episodes.'};
-const subtitles = {overview:'A little of everything you love listening to.',subscriptions:'Choose a podcast to browse its episodes.',discover:'Search for podcasts and add them to your shared library.',queue:'Your shared queue, in the order it will play.',devices:'See what is playing across your connected apps.',activity:'The latest saved episode updates from your apps.',podcast:'Browse, listen, and add something to your queue.'};
+const titles = {overview:'Your library, together.',subscriptions:'Your subscriptions.',discover:'Find your next favorite.',queue:'Up next.',devices:'Your connected apps.',activity:'Your playback records.',account:'Account settings.',podcast:'Episodes.'};
+const subtitles = {overview:'A little of everything you love listening to.',subscriptions:'Choose a podcast to browse its episodes.',discover:'Search for podcasts and add them to your shared library.',queue:'Your shared queue, in the order it will play.',devices:'See what is playing across your connected apps.',activity:'The latest saved episode updates from your apps.',account:'Manage the password for your sync account.',podcast:'Browse, listen, and add something to your queue.'};
 let authorization='', account='', data=null, view='overview', selectedFeed='', limit=40, epoch=0, busy=0, syncChain=Promise.resolve(), loading=false;
+let queueDrag=null,accountCSRF='',accountGeneration=0,accountSaving=false;
 let navigationDepth=0,focusedEpisode=null,detailQuery='';
 let podcastOrigin='subscriptions',podcastCanGoBack=false,discoveryRequest=0;
 let metadata=new Map(), feedErrors=new Map(), feedLoads=new Map(), actions=new Map(), discoverResults=[], discoverySearched=false;
@@ -176,6 +177,7 @@ function playButton(item,kind='single'){const current=playing&&matching(playing,
 function progressText(item){const a=playback(item);if(!a)return '';return a.total>0&&a.position>=a.total?'Played':a.position>0?`Resume at ${position(a.position)}`:'';}
 function queueRow(item,compact=false){
   const row=element('div','queue-row'+(compact?' compact':''));
+  if(!compact)attachQueueDrag(row,item);
   row.append(element('span','queue-index',String(data.queue.findIndex(x=>matching(x,item))+1)),itemArt(item));
   const main=element('div','row-main');main.append(button(episodeName(item),'episode-title row-title'+(compact?' truncate':''),()=>openEpisode(item)),button(feedName(item.podcast),'text-button row-subtitle',()=>openPodcast(item.podcast)));
   const progress=progressText(item);if(progress&&!compact)main.append(element('div','progress-line',progress));row.append(main,playButton(item,'queue'));
@@ -248,12 +250,12 @@ function discoveryCard(item){
   if(safeUrl(item.website)){const link=element('a','text-button','Apple Podcasts');link.href=item.website;link.target='_blank';link.rel='noopener noreferrer';card.append(link);}
   return card;
 }
-function renderList(){if(!data||view==='overview')return;const expanded=new Set([...document.querySelectorAll('.episode-row:has(details[open])')].map(n=>n.dataset.episodeKey));const aboutOpen=Boolean(document.querySelector('#podcast-heading details[open]'));const needle=$('search').value.trim().toLowerCase();let items=[],render,note='';
+function renderList(){if(!data||view==='overview'||view==='account'||queueDrag)return;const expanded=new Set([...document.querySelectorAll('.episode-row:has(details[open])')].map(n=>n.dataset.episodeKey));const aboutOpen=Boolean(document.querySelector('#podcast-heading details[open]'));const needle=$('search').value.trim().toLowerCase();let items=[],render,note='';
   $('list-content').className=['subscriptions','discover'].includes(view)?'feed-grid':'';
   if(view==='devices'){renderDevices(needle);return;}
   if(view==='subscriptions'&&needle){renderLibrarySearch(needle);return;}
   if(view==='subscriptions'){items=orderedSubscriptions().filter(x=>(feedName(x)+' '+x).toLowerCase().includes(needle));render=feedCard;note='Choose a thumbnail count, then sort by count, latest episode date, or title. Played and unplayed counts use synced status for episodes in the current feed. In queue includes older queued episodes.';}
-  if(view==='queue'){items=data.queue.filter(x=>(episodeName(x)+' '+feedName(x.podcast)).toLowerCase().includes(needle));render=queueRow;note='Add, remove, or move episodes here. Your apps pick up the saved order when they sync.';}
+  if(view==='queue'){items=data.queue.filter(x=>(episodeName(x)+' '+feedName(x.podcast)).toLowerCase().includes(needle));render=queueRow;note='Drag the grip beside an episode to move it. You can also use Earlier/Later, or focus the grip and use arrow keys, Home or End. Your apps pick up the saved order when they sync.';}
   if(view==='devices'){items=data.devices.filter(x=>(x.caption+' '+x.id+' '+x.type).toLowerCase().includes(needle));render=deviceRow;note='Apps sharing a device name appear once. Registration does not mean a device is online.';}
   if(view==='activity'){items=data.actions.filter(x=>(episodeName(x)+' '+feedName(x.podcast)+' '+x.device).toLowerCase().includes(needle));render=activityRow;note='Latest saved records per episode and action type, rather than every listening event or total listening time.';}
   if(view==='podcast'){items=focusedEpisode?[{...focusedEpisode,...episodeMeta(focusedEpisode)}]:orderedEpisodes(selectedFeed).filter(x=>(x.title+' '+x.description).toLowerCase().includes(needle));render=episodeRow;note=metadata.get(selectedFeed)?.episodes?'Play next follows the episode order selected when you start listening. Older queued episodes remain playable from your queue.':feedErrors.has(selectedFeed)?'Could not load this feed. Use Refresh episodes to retry.':'Loading episodes…';if(focusedEpisode)note='Read the full synopsis below. Back returns to the page you were browsing.';else if(metadata.get(selectedFeed)?.limited)note+=' Showing up to 2,000 episodes.';else if(needle)note='Matches episode titles and synopses. Matches within a synopsis are shown below the title.';}
@@ -263,7 +265,7 @@ function renderList(){if(!data||view==='overview')return;const expanded=new Set(
   $('list-content').replaceChildren(...(items.length?items.slice(0,limit).map(x=>render(x)):[empty(noItems)]));renderPodcastHeading();for(const row of document.querySelectorAll('.episode-row')){if(expanded.has(row.dataset.episodeKey)&&row.querySelector('details'))row.querySelector('details').open=true;}if(aboutOpen&&document.querySelector('#podcast-heading details'))document.querySelector('#podcast-heading details').open=true;
 }
 function render(){if(!data)return;feedCountsCache.clear();renderOverview();renderList();if(playing){$('player-art').replaceChildren(itemArt(playing));$('player-podcast').textContent=feedName(playing.podcast);$('player-title').textContent=episodeMeta(playing)?.title||playing.title;}updateBusy();}
-function showView(scroll=0){$('page-title').textContent=focusedEpisode?'Episode details.':titles[view];$('page-back').hidden=navigationDepth===0&&view==='overview';$('list-toolbar').hidden=Boolean(focusedEpisode);$('page-subtitle').textContent=subtitles[view];$('overview-view').hidden=view!=='overview';$('detail-view').hidden=view==='overview';$('stats').hidden=view!=='overview';$('subscription-tools').hidden=view!=='subscriptions';$('discover-tools').hidden=view!=='discover';$('clear-queue').hidden=view!=='queue';$('podcast-heading').hidden=view!=='podcast';$('sort-control').hidden=!['subscriptions','podcast'].includes(view);$('sort-title').hidden=view!=='subscriptions';updateCountControls();if(sortOrder[view])$('list-sort').value=sortOrder[view];for(const b of document.querySelectorAll('.nav-item')){const active=b.dataset.view===view||(view==='podcast'&&b.dataset.view===podcastOrigin);b.classList.toggle('active',active);if(active)b.setAttribute('aria-current','page');else b.removeAttribute('aria-current');}renderList();if(view==='devices')loadPresence();window.scrollTo(0,scroll);}
+function showView(scroll=0){$('page-title').textContent=focusedEpisode?'Episode details.':titles[view];$('page-back').hidden=navigationDepth===0&&view==='overview';$('list-toolbar').hidden=Boolean(focusedEpisode);$('page-subtitle').textContent=subtitles[view];$('overview-view').hidden=view!=='overview';$('detail-view').hidden=['overview','account'].includes(view);$('account-view').hidden=view!=='account';$('stats').hidden=view!=='overview';$('subscription-tools').hidden=view!=='subscriptions';$('discover-tools').hidden=view!=='discover';$('clear-queue').hidden=view!=='queue';$('podcast-heading').hidden=view!=='podcast';$('sort-control').hidden=!['subscriptions','podcast'].includes(view);$('sort-title').hidden=view!=='subscriptions';updateCountControls();if(sortOrder[view])$('list-sort').value=sortOrder[view];for(const b of document.querySelectorAll('.nav-item')){const active=b.dataset.view===view||(view==='podcast'&&b.dataset.view===podcastOrigin);b.classList.toggle('active',active);if(active)b.setAttribute('aria-current','page');else b.removeAttribute('aria-current');}renderList();if(view==='devices')loadPresence();if(view==='account')loadAccountSettings();window.scrollTo(0,scroll);}
 function navigationState(){
   return {podcastSync:1,account,view,feed:selectedFeed,origin:podcastOrigin,canGoBack:podcastCanGoBack,depth:navigationDepth,episode:focusedEpisode,detailQuery,
     filter:$('search').value,limit,scroll:window.scrollY||0,sort:{...sortOrder},
@@ -283,6 +285,7 @@ function rememberView(){
 function changeView(next,{feed='',origin='subscriptions',replace=false,episode=null,query=''}={}){
   if(!data||!Object.hasOwn(titles,next))return;
   if(!replace&&next===view&&(next!=='podcast'||feed===selectedFeed)&&((!episode&&!focusedEpisode)||(episode&&focusedEpisode&&matching(episode,focusedEpisode))))return;
+  finishQueueDrag(false);clearAccountSettings();
   if(!replace){rememberView();navigationDepth++;}else navigationDepth=0;
   podcastCanGoBack=!replace&&next==='podcast'&&view===origin;
   view=next;selectedFeed=feed;podcastOrigin=origin;focusedEpisode=episode?queueItem(episode):null;detailQuery=query;limit=40;$('search').value='';
@@ -291,6 +294,7 @@ function changeView(next,{feed='',origin='subscriptions',replace=false,episode=n
 }
 function restoreView(state){
   if(!data)return;
+  finishQueueDrag(false);clearAccountSettings();
   discoveryRequest++;$('discover-submit').disabled=false;$('discover-error').hidden=true;
   if(state?.podcastSync===1&&state.account===account&&Object.hasOwn(titles,state.view)){
     view=state.view;selectedFeed=safeUrl(state.feed)||'';podcastOrigin=state.origin==='discover'?'discover':'subscriptions';
@@ -331,14 +335,14 @@ async function loadFeed(url,full=false,refresh=false){
 }
 async function warmFeeds(){const token=epoch,urls=[...new Set([...data.queue.map(x=>x.podcast),...data.subscriptions])];let at=0;await Promise.all([0,1,2].map(async()=>{while(at<urls.length&&token===epoch){const url=urls[at++];if(!metadata.has(url)&&!feedErrors.has(url))await loadFeed(url).catch(()=>{});}}));}
 async function refreshData(initial=false,quiet=false){
-  if(loading||(!initial&&busy))return;loading=true;const token=epoch;
+  if(loading||queueDrag||(!initial&&busy))return;loading=true;const token=epoch;
   try{await serial(async()=>{
     const user=encodeURIComponent(account),cursor=data?.cursor||0;
     const [devices,subs,queue,updates]=await Promise.all([request(`devices/${user}.json`),request(`subscriptions/${user}/${device}.json?since=0`),request(`queue/${user}/${device}.json`),request(`episodes/${user}.json?since=${cursor}`)]);
     if(token!==epoch)return;
     if(!Array.isArray(devices)||!Array.isArray(subs.add)||!Array.isArray(queue.items)||!Array.isArray(updates.actions))throw new Error('The server returned an unexpected response.');
     data={devices,subscriptions:[...new Set(subs.add)],queue:queue.items,revision:queue.revision,actions:[],cursor:updates.timestamp};mergeActions(updates.actions);
-    $('password').value='';$('login-screen').hidden=true;$('dashboard').hidden=false;$('navigation').hidden=false;$('account-controls').hidden=false;$('account-name').textContent=account;$('updated-at').textContent='Updated '+new Date().toLocaleTimeString(undefined,{hour:'numeric',minute:'2-digit'});
+    $('password').value='';$('login-screen').hidden=true;$('dashboard').hidden=false;$('navigation').hidden=false;$('account-controls').hidden=false;$('account-name').textContent=account;$('account-name').setAttribute('aria-label','Account settings for '+account);$('updated-at').textContent='Updated '+new Date().toLocaleTimeString(undefined,{hour:'numeric',minute:'2-digit'});
     if(initial)restoreView(history.state);render();if(!quiet)$('dashboard-error').hidden=true;
   });if(token===epoch&&data){warmFeeds();loadPresence();}}
   catch(error){if(token!==epoch)return;if(initial){authorization='';$('login-error').textContent=error.message;$('login-error').hidden=false;}else showError(error.message+' The last loaded library is still shown.');}
@@ -407,7 +411,7 @@ $('login-form').addEventListener('submit',async event=>{
   catch(error){account='';$('login-error').textContent=error.message;$('login-error').hidden=false;}
   finally{authorization='';$('password').value='';$('sign-in').disabled=false;$('sign-in').textContent='Open my library';}
 });
-$('sign-out').addEventListener('click',async()=>{await queueProgress();if(pendingProgress.size&&!await confirmAction('Sign out with progress still saving?','Keep this tab open until progress saves to avoid losing your latest listening position.','Sign out'))return;await reportPresence('stopped');try{await request(`auth/${encodeURIComponent(account)}/logout.json`,{});}catch(error){if(error.status!==401){showError('Could not sign out. '+error.message);return;}}suppressPresence=true;epoch++;presencePending=null;presenceFlight=null;presenceLoading=false;livePlayers=[];presenceError='';ready=false;audio.pause();audio.removeAttribute('src');audio.load();playing=null;playContext=null;played=false;setPlayerError('');setProgressError('');for(const c of controllers)c.abort();controllers.clear();authorization='';account='';data=null;metadata=new Map();feedErrors=new Map();feedLoads=new Map();actions=new Map();playbackIndex.clear();feedCountsCache.clear();pendingProgress=new Map();progressSending=false;discoverResults=[];discoverySearched=false;discoveryRequest++;history.replaceState(null,'',new URL('.',location.href));navigationDepth=0;focusedEpisode=null;detailQuery='';busy=0;loading=false;syncChain=Promise.resolve();$('dashboard').hidden=true;$('navigation').hidden=true;$('account-controls').hidden=true;$('player').hidden=true;$('login-screen').hidden=false;$('password').value='';$('sign-in').disabled=false;$('sign-in').textContent='Open my library';for(const id of ['queue-preview','activity-preview','feed-preview','list-content','podcast-heading','player-title','player-art','player-podcast','account-name'])$(id).replaceChildren();$('dashboard-error').hidden=true;$('notice').hidden=true;$('discover-error').hidden=true;$('discover-query').value='';$('feed-url').value='';$('search').value='';$('password').focus();});
+$('sign-out').addEventListener('click',async()=>{finishQueueDrag(false);clearAccountSettings();await queueProgress();if(pendingProgress.size&&!await confirmAction('Sign out with progress still saving?','Keep this tab open until progress saves to avoid losing your latest listening position.','Sign out'))return;await reportPresence('stopped');try{await request(`auth/${encodeURIComponent(account)}/logout.json`,{});}catch(error){if(error.status!==401){showError('Could not sign out. '+error.message);return;}}suppressPresence=true;epoch++;presencePending=null;presenceFlight=null;presenceLoading=false;livePlayers=[];presenceError='';ready=false;audio.pause();audio.removeAttribute('src');audio.load();playing=null;playContext=null;played=false;setPlayerError('');setProgressError('');for(const c of controllers)c.abort();controllers.clear();authorization='';account='';data=null;metadata=new Map();feedErrors=new Map();feedLoads=new Map();actions=new Map();playbackIndex.clear();feedCountsCache.clear();pendingProgress=new Map();progressSending=false;discoverResults=[];discoverySearched=false;discoveryRequest++;history.replaceState(null,'',new URL('.',location.href));navigationDepth=0;focusedEpisode=null;detailQuery='';busy=0;loading=false;syncChain=Promise.resolve();$('dashboard').hidden=true;$('navigation').hidden=true;$('account-controls').hidden=true;$('player').hidden=true;$('login-screen').hidden=false;$('password').value='';$('sign-in').disabled=false;$('sign-in').textContent='Open my library';for(const id of ['queue-preview','activity-preview','feed-preview','list-content','podcast-heading','player-title','player-art','player-podcast','account-name'])$(id).replaceChildren();$('dashboard-error').hidden=true;$('notice').hidden=true;$('discover-error').hidden=true;$('discover-query').value='';$('feed-url').value='';$('search').value='';$('password').focus();});
 document.addEventListener('click',event=>{const b=event.target.closest('button[data-view]');if(b)changeView(b.dataset.view);});
 $('refresh').addEventListener('click',()=>{feedErrors.clear();refreshData();});
 $('search').addEventListener('input',()=>{limit=40;renderList();rememberView();});
@@ -422,4 +426,110 @@ setInterval(()=>{if(data)reportPresence();},15000);
 setInterval(()=>{if(data&&view==='devices'&&!document.hidden)loadPresence();},10000);
 $('server-name').textContent=location.host;
 
+function clearAccountSettings(){
+  accountGeneration++;accountCSRF='';
+  for(const id of ['current-password','new-password','confirm-password'])$(id).value='';
+  $('password-status').hidden=true;$('password-error').hidden=true;$('change-password').disabled=true;
+}
+async function loadAccountSettings(){
+  const generation=++accountGeneration,token=epoch;accountCSRF='';$('change-password').disabled=true;
+  try{const session=await request('session.json');if(token!==epoch||generation!==accountGeneration||view!=='account')return;
+    if(!session.authenticated||session.username!==account)throw new Error('Your session has ended. Sign out and sign in again.');
+    accountCSRF=session.csrf_token;$('change-password').disabled=accountSaving;
+  }catch(error){if(token===epoch&&generation===accountGeneration){$('password-error').textContent=error.message;$('password-error').hidden=false;}}
+}
+$('password-form').addEventListener('submit',async event=>{
+  event.preventDefault();if(accountSaving||!accountCSRF)return;
+  const current=$('current-password').value,next=$('new-password').value,confirmation=$('confirm-password').value;
+  $('password-status').hidden=true;$('password-error').hidden=true;
+  let error='';
+  if([...next].length<12||new TextEncoder().encode(next).length>72)error='Use at least 12 characters and at most 72 UTF-8 bytes.';
+  else if(next!==confirmation)error='New passwords do not match.';
+  if(error){$('password-error').textContent=error;$('password-error').hidden=false;return;}
+  const token=epoch,generation=accountGeneration;accountSaving=true;$('change-password').disabled=true;$('change-password').textContent='Changing password…';
+  try{
+    const result=await request(userPath('account'),{current_password:current,new_password:next,confirmation,csrf_token:accountCSRF});
+    if(token!==epoch||generation!==accountGeneration)return;
+    if(!result.changed)throw new Error('The server did not confirm the password change.');
+    accountCSRF=result.csrf_token;
+    $('password-status').textContent='Password changed. You are still signed in here. Update Kasts and AntennaPod with your new sync password.';$('password-status').hidden=false;
+  }catch(error){if(token===epoch&&generation===accountGeneration){$('password-error').textContent=(error.status?'':'Could not confirm the password change. ')+error.message;$('password-error').hidden=false;}}
+  finally{
+    accountSaving=false;
+    if(token===epoch&&generation===accountGeneration)for(const id of ['current-password','new-password','confirm-password'])$(id).value='';
+    $('change-password').textContent='Change password';$('change-password').disabled=!accountCSRF;
+  }
+});
+function queueReposition(items,item,anchor,after){
+  const from=items.findIndex(x=>matching(x,item));
+  if(from<0||!items.some(x=>matching(x,anchor)))throw new Error('The queue changed. Refresh it before moving this episode.');
+  if(matching(item,anchor))return items;
+  const [moved]=items.splice(from,1),to=items.findIndex(x=>matching(x,anchor));
+  items.splice(to+(after?1:0),0,moved);return items;
+}
+async function moveQueueTo(item,anchor,after){
+  const proposed=queueReposition(data.queue.slice(),item,anchor,after);
+  if(proposed.every((x,i)=>matching(x,data.queue[i])))return;
+  const saved=await editQueue(items=>queueReposition(items,item,anchor,after),'Queue reordered.');
+  if(saved&&view==='queue'){
+    const row=[...$('list-content').querySelectorAll('.queue-row')].find(x=>matching(x.queueItem,item));
+    row?.querySelector('.queue-grip')?.focus({preventScroll:true});
+  }
+}
+function attachQueueDrag(row,item){
+  row.queueItem=item;
+  const grip=button('','queue-grip',()=>{},true);
+  grip.setAttribute('aria-label','Move episode: '+episodeName(item));
+  grip.title='Drag to move. Keyboard: Up, Down, Home, End.';
+  const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.setAttribute('viewBox','0 0 24 24');svg.setAttribute('aria-hidden','true');
+  for(const x of [8,16])for(const y of [5,12,19]){const dot=document.createElementNS('http://www.w3.org/2000/svg','circle');dot.setAttribute('cx',x);dot.setAttribute('cy',y);dot.setAttribute('r','1.7');svg.append(dot);}
+  grip.append(svg);row.append(grip);
+  grip.addEventListener('keydown',event=>{
+    if(busy||queueDrag||!['ArrowUp','ArrowDown','Home','End'].includes(event.key))return;
+    event.preventDefault();const at=data.queue.findIndex(x=>matching(x,item));
+    const to=event.key==='Home'?0:event.key==='End'?data.queue.length-1:at+(event.key==='ArrowUp'?-1:1);
+    if(to>=0&&to<data.queue.length&&to!==at)moveQueueTo(item,data.queue[to],to>at).catch(error=>showError(error.message));
+  });
+  grip.addEventListener('pointerdown',event=>{
+    if(busy||queueDrag||event.button!==0)return;
+    event.preventDefault();grip.focus({preventScroll:true});grip.setPointerCapture(event.pointerId);
+    queueDrag={row,grip,item,pointer:event.pointerId,startY:event.clientY,y:event.clientY,startScroll:window.scrollY,active:false,target:null,after:false,frame:0};
+  });
+  grip.addEventListener('lostpointercapture',()=>finishQueueDrag(false));
+}
+function positionQueueDrag(){
+  const drag=queueDrag;if(!drag?.active)return;
+  const rows=[...$('list-content').querySelectorAll('.queue-row')].filter(x=>x!==drag.row);
+  for(const row of rows)row.classList.remove('drop-before','drop-after');
+  drag.target=null;
+  for(const row of rows){const rect=row.getBoundingClientRect();if(drag.y<rect.top+rect.height/2){drag.target=row;drag.after=false;break;}}
+  if(!drag.target&&rows.length){drag.target=rows.at(-1);drag.after=true;}
+  drag.target?.classList.add(drag.after?'drop-after':'drop-before');
+  drag.row.style.transform=`translateY(${drag.y-drag.startY+window.scrollY-drag.startScroll}px)`;
+}
+function scrollQueueDrag(){
+  const drag=queueDrag;if(!drag?.active)return;
+  const bottom=$('player').hidden?window.innerHeight:Math.min(window.innerHeight,$('player').getBoundingClientRect().top);
+  const speed=drag.y<90?-Math.min(18,(90-drag.y)/3):drag.y>bottom-70?Math.min(18,(drag.y-bottom+70)/3):0;
+  if(speed)window.scrollBy(0,speed);
+  positionQueueDrag();drag.frame=requestAnimationFrame(scrollQueueDrag);
+}
+function finishQueueDrag(save){
+  const drag=queueDrag;if(!drag)return;queueDrag=null;cancelAnimationFrame(drag.frame);
+  if(drag.grip.hasPointerCapture(drag.pointer))drag.grip.releasePointerCapture(drag.pointer);
+  drag.row.style.transform='';drag.row.classList.remove('queue-dragging');document.body.classList.remove('dragging-queue');
+  for(const row of $('list-content').querySelectorAll('.queue-row'))row.classList.remove('drop-before','drop-after');
+  const anchor=drag.target?.queueItem;renderList();
+  if(save&&drag.active&&anchor)moveQueueTo(drag.item,anchor,drag.after).catch(error=>showError(error.message));
+}
+window.addEventListener('pointermove',event=>{
+  const drag=queueDrag;if(!drag||event.pointerId!==drag.pointer)return;
+  drag.y=event.clientY;
+  if(!drag.active&&Math.abs(drag.y-drag.startY)>6){drag.active=true;drag.row.classList.add('queue-dragging');document.body.classList.add('dragging-queue');scrollQueueDrag();}
+  if(drag.active){event.preventDefault();positionQueueDrag();}
+},{passive:false});
+window.addEventListener('pointerup',event=>{if(event.pointerId===queueDrag?.pointer)finishQueueDrag(true);});
+window.addEventListener('pointercancel',event=>{if(event.pointerId===queueDrag?.pointer)finishQueueDrag(false);});
+window.addEventListener('keydown',event=>{if(event.key==='Escape'&&queueDrag){event.preventDefault();finishQueueDrag(false);}});
+window.addEventListener('blur',()=>finishQueueDrag(false));
 restoreSession();

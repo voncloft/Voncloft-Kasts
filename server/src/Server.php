@@ -91,16 +91,53 @@ final class Server {
         if ($basicUser !== null) {
             $ok = $user && hash_equals($name, (string)$basicUser) && password_verify((string)$basicPass, $user['password_hash']);
         } else {
-            $ok = $user && !$login && (int)($_SESSION['uid'] ?? 0) === (int)$user['id'];
+            $ok = $user && !$login && $this->sessionMatches($user);
         }
         if (!$ok) {
             session_write_close();
             header('WWW-Authenticate: Basic realm="Podcast Sync", charset="UTF-8"');
             throw new HttpError(401, 'Authentication required.');
         }
-        if ($login) { session_regenerate_id(true); $_SESSION['uid'] = (int)$user['id']; }
+        if ($login) { $this->renewSession($user); }
         session_write_close();
         return $user;
+    }
+    private function sessionMatches(array $user): bool {
+        return (int)($_SESSION['uid'] ?? 0) === (int)$user['id']
+            && hash_equals(hash('sha256', $user['password_hash']), (string)($_SESSION['password_version'] ?? ''));
+    }
+    private function renewSession(array $user): void {
+        session_regenerate_id(true);
+        $_SESSION = ['uid'=>(int)$user['id'], 'password_version'=>hash('sha256', $user['password_hash']), 'csrf_token'=>bin2hex(random_bytes(32))];
+    }
+    private function changePassword(array $user, string $method): never {
+        if ($method !== 'POST') { throw new HttpError(405, 'Method not allowed.'); }
+        $body = $this->jsonBody();
+        $this->session();
+        try {
+            if (!$this->sessionMatches($user) || !is_array($body) || !is_string($body['csrf_token'] ?? null)
+                || !isset($_SESSION['csrf_token']) || !hash_equals($_SESSION['csrf_token'], $body['csrf_token'])) {
+                throw new HttpError(403, 'Reopen account settings and try again.');
+            }
+            $current = $body['current_password'] ?? null;
+            $next = $body['new_password'] ?? null;
+            $confirmation = $body['confirmation'] ?? null;
+            if (!is_string($current) || strlen($current)>1024 || !password_verify($current, $user['password_hash'])) {
+                throw new HttpError(400, 'Current password is incorrect.');
+            }
+            if (!is_string($next) || strlen($next)>72 || str_contains($next, "\0") || preg_match_all('/./us', $next)<12) {
+                throw new HttpError(400, 'Use at least 12 characters and at most 72 UTF-8 bytes for the new password.');
+            }
+            if (!is_string($confirmation) || !hash_equals($next, $confirmation)) { throw new HttpError(400, 'New passwords do not match.'); }
+            if (password_verify($next, $user['password_hash'])) { throw new HttpError(400, 'Choose a different new password.'); }
+            $hash = password_hash($next, PASSWORD_DEFAULT);
+            $updated = $this->query('UPDATE ps_users SET password_hash=? WHERE id=? AND password_hash=?', [$hash,$user['id'],$user['password_hash']]);
+            if ($updated->rowCount() !== 1) { throw new HttpError(409, 'Password changed in another session. Sign in again.'); }
+            $user['password_hash'] = $hash;
+            $this->renewSession($user);
+            $result = ['changed'=>true, 'csrf_token'=>$_SESSION['csrf_token']];
+        } finally { session_write_close(); }
+        self::output($result);
     }
     private static function output(mixed $data, int $status = 200): never {
         http_response_code($status);
@@ -345,16 +382,19 @@ final class Server {
             if ($method!=='GET') { throw new HttpError(405,'Method not allowed.'); }
             require_once __DIR__.'/PodcastLibrary.php';
             try { $transport=PodcastLibrary::transport(); } catch (HttpError $e) { $transport='unavailable'; }
-            self::output(['service'=>'Von Podcast Sync','version'=>'1.1.5','api'=>'gpodder-2','queue_protocol'=>'vonqueue-v1','web_player'=>true,'presence_protocol'=>'vonpresence-v1',
+            self::output(['service'=>'Von Podcast Sync','version'=>'1.1.6','api'=>'gpodder-2','queue_protocol'=>'vonqueue-v1','web_player'=>true,'presence_protocol'=>'vonpresence-v1',
                 'feed_transport'=>$transport,'feed_parser'=>class_exists('DOMDocument')?'DOM':'unavailable']);
         }
         if ($path==='/api/2/session.json') {
             if ($method!=='GET') { throw new HttpError(405,'Method not allowed.'); }
             $this->session();
             $uid=(int)($_SESSION['uid']??0);
+            $user=$uid ? $this->query('SELECT * FROM ps_users WHERE id=?',[$uid])->fetch() : false;
+            $result=$user && $this->sessionMatches($user)
+                ? ['authenticated'=>true,'username'=>$user['username'],'csrf_token'=>$_SESSION['csrf_token']]
+                : ['authenticated'=>false];
             session_write_close();
-            $name=$uid ? $this->query('SELECT username FROM ps_users WHERE id=?',[$uid])->fetchColumn() : false;
-            self::output($name ? ['authenticated'=>true,'username'=>$name] : ['authenticated'=>false]);
+            self::output($result);
         }
         if ($path==='/api/2/queue-capabilities.json' && $method==='GET') {
             self::output(['protocol'=>'vonqueue-v1','ordered_queue'=>true,'three_way_merge'=>true]);
@@ -365,10 +405,11 @@ final class Server {
             if ($m[2]==='logout') { $this->session(); $_SESSION=[]; $cookie=session_get_cookie_params(); unset($cookie['lifetime']); header_remove('Set-Cookie'); setcookie(session_name(),'',array_merge($cookie,['expires'=>time()-3600])); session_destroy(); }
             self::output((object)[]);
         }
-        if (!preg_match('#^/api/2/(devices|subscriptions|episodes|sync-devices|queue|library|discover|presence)/([^/]+?)(?:/([^/]+))?\.json$#D',$path,$m)) {
+        if (!preg_match('#^/api/2/(devices|subscriptions|episodes|sync-devices|queue|library|discover|presence|account)/([^/]+?)(?:/([^/]+))?\.json$#D',$path,$m)) {
             throw new HttpError(404,'Endpoint not found.');
         }
         $user=$this->authenticate($m[2]); $uid=(int)$user['id']; $kind=$m[1]; $device=$m[3]??null;
+        if ($kind==='account' && $device===null) { $this->changePassword($user,$method); }
         if ($kind==='presence') { $this->presence($uid,$device,$method); }
         if ($kind==='discover' && $device===null && $method==='GET') {
             $term=$_GET['q']??'';
