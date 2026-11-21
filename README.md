@@ -14,7 +14,7 @@ The website is called **Podcast Sync**. Open `/dashboard/` on your server and si
 - **Web playback:** streams audio from the publisher, saves listening progress, supports playback speed and skip controls, and can continue through the selected listening list. Finishing an episode on the website removes it from the shared queue if it is queued.
 - **Shared queue:** add, remove, clear, and reorder episodes. Drag the grip beside a queue row to move it freely with a mouse or touch. Earlier/Later buttons and keyboard Up/Down/Home/End are also available. Reordering filtered results preserves hidden episodes. The stored queue and order are exchanged with the modified desktop and Android clients.
 - **Sorting and counts:** sort subscriptions by latest episode date in either direction, title, or count. Thumbnail counts can show Unplayed, Played, Total episodes, In queue, or Off. Episode lists also support newest/oldest ordering.
-- **Devices:** shows registered sync identities and separate live player reports, including episode, playing/paused/stopped state, and position.
+- **Devices:** shows registered sync identities and separate last-reported playback snapshots, including episode, playing/paused/stopped state, and position. Open Devices or use Refresh for new reports.
 - **Playback history:** shows the latest synced episode-state records. These are not a complete listening-session history or a lifetime listening-time total.
 - **Android download:** the sidebar has a Latest Android APK link with the available custom app version. It downloads from the server's public downloads folder without signing in.
 
@@ -24,21 +24,25 @@ The website is called **Podcast Sync**. Open `/dashboard/` on your server and si
 
 | Component | Version |
 | --- | --- |
-| Website and server update | **1.1.6** |
-| AntennaPod Queue Sync | **3.12.3-vonqueue.3** / Android versionCode **3120397** |
-| Kasts with queue sync and live reporting | **26.08.3, package release 5** |
+| Website and server update | **1.1.8** |
+| AntennaPod Queue Sync | **3.12.3-vonqueue.5** / Android versionCode **3120399** |
+| Kasts with action-triggered queue sync | **26.08.3, package release 8** |
 
-The features above describe the 1.1.6 update package. Older archives committed to this repository may contain earlier versions; check the website footer or `/health` on your installed server. Updating this README alone does not deploy the application.
+The features above describe the 1.1.8 update package. Older archives committed to this repository may contain earlier versions; check the website footer or `/health` on your installed server. Updating this README alone does not deploy the application.
 
 ## How synchronization works
 
-Use one account on the website, Kasts, and AntennaPod Queue Sync. Distinct device names make the clients easier to identify. Sharing a sync identity is possible, but the Devices page then lists that identity once; live player reports still identify separate players.
+Use one account on the website, Kasts, and AntennaPod Queue Sync. Distinct device names make the clients easier to identify. Sharing a sync identity is possible, but the Devices page then lists that identity once; playback reports still identify separate players.
 
-Website changes save to the server immediately. Other apps receive subscriptions, queue changes, and playback progress when they synchronize. Queue edits are **not instant push updates**. Sync the app making a change, then sync the other device when you want to see it immediately. Kasts' playback-only quick upload does not exchange the shared queue.
+Website changes save immediately. **Kasts release 8 and AntennaPod revision 5 sync on actions, with no idle polling**. Adding/removing subscriptions, adding/removing/clearing/reordering/sorting the shared queue, changing played/unplayed state, playing, pausing, seeking and finishing episodes trigger sync. Kasts batches events for about 2 seconds and Android for about 3 seconds. Changes made during a sync get a follow-up, and an acknowledgement preserves later pending edits.
 
-While visible, the website checks the library for updates about every 30 seconds. Web playback progress saves approximately every 15 seconds. Updated clients report live playback about every 15 seconds; reports are marked stale after 90 seconds without an update. Live status is informational and does not remotely control another device.
+Opening/signing into an app and explicit refresh/manual sync also load changes. A device sitting idle makes no periodic sync requests. Periodic RSS feed refreshes do not trigger account sync; routine playback position checkpoints remain local until a playback action sends them. Android revision 5 cancels the old periodic sync job created by revision 4. Pending failed action saves may retry, subject to network/battery restrictions, but successful sync does not schedule more work.
 
-Queue membership and order require the modified clients because ordinary gpodder sync does not carry an ordered queue. Stock clients can use compatible subscription and episode-state endpoints, but do not gain queue sync or live reporting just by changing the server address.
+**An idle device receives another device's changes on its next action, opening or manual sync.** There is no incoming polling or server push. The website reloads data on opening/returning, refresh and completed library/playback actions. Update all clients and refresh existing browser tabs to stop the old timers.
+
+The Devices page shows **last reported playback**, sent on playback events. There are no recurring presence heartbeats or Devices-page polls. A reported playing/paused state is a snapshot, not proof that the device is currently playing or online. Playback state does not remotely start or pause another device. Downloaded audio files and local settings such as volume or view sorting are not shared.
+
+Queue membership and order require the modified clients because ordinary gpodder sync does not carry an ordered queue. Stock clients can use compatible subscription and episode-state endpoints, but do not gain queue sync or playback reporting just by changing the server address.
 
 Played/unplayed counts and title searches use episodes still listed in the publisher's feed, up to the parser limit of 2,000 episodes per feed. Old episodes already in the shared queue remain searchable there. Failed feeds are indicated in search results. Sorting preferences for subscription and episode views are local; changes to the actual shared queue order sync between devices.
 
@@ -50,7 +54,7 @@ Played/unplayed counts and title searches use episodes still listed in the publi
 - Publisher-feed downloads through PHP HTTPS support, or the system `curl` command with HTTPS support and PHP `proc_open` enabled.
 - A writable private `server/var/` directory for runtime caches and sessions.
 
-No Nextcloud, Docker, Composer, Android Studio, or cron job is required to use the delivered server and APK. See [the initial setup guide](docs/SETUP.txt) and [client build instructions](docs/BUILD.txt) for the base installation; use the component versions above for the newer queue/live-status features.
+No Nextcloud, Docker, Composer, Android Studio, or cron job is required to use the delivered server and APK. See [the initial setup guide](docs/SETUP.txt) and [client build instructions](docs/BUILD.txt) for the base installation; use the component versions above for the newer queue/playback-report features.
 
 Point Apache's DocumentRoot at **`server/public/`**, not the repository root. Keep database credentials in `server/config/config.php`, outside the public directory. Initialize the database and create the sync user with `server/bin/manage.php` as described in the setup guide. Use that sync username/password in each client; the database password is separate.
 
@@ -58,13 +62,13 @@ Your website can use HTTP on your LAN. Publishers may still require HTTPS for fe
 
 ## Updating the existing LAMP installation
 
-Use the supplied **`Podcast-Sync-Web-Player-1.1.6.zip`** update package. On the LAMP server, after copying it into `/tmp`:
+Use the supplied **`Podcast-Sync-Web-Player-1.1.8.zip`** update package. On the LAMP server, after copying it into `/tmp`:
 
 ```bash
 (
 set -e
-unzip -o /tmp/Podcast-Sync-Web-Player-1.1.6.zip -d /tmp/podcast-web-player-1.1.6
-bash /tmp/podcast-web-player-1.1.6/install.sh /media/Websites/kasts_server/server
+unzip -o /tmp/Podcast-Sync-Web-Player-1.1.8.zip -d /tmp/podcast-web-player-1.1.8
+bash /tmp/podcast-web-player-1.1.8/install.sh /media/Websites/kasts_server/server
 curl -fsS http://127.0.0.1:87/health
 )
 ```
@@ -73,37 +77,69 @@ Substitute your own installation path and server address when deploying elsewher
 
 The installer verifies checksums and PHP requirements, backs up the previous application files and README, publishes the Android APK, and prints a rollback command. It does not replace the configuration or database and does not require a database migration. The repository README is installed one directory above `server/`.
 
-Open `http://YOUR-SERVER/dashboard/` and use **Ctrl+Shift+R** once. The footer and `/health` should report **1.1.6**. Sign in once after installing 1.1.6 to renew the session; subsequent refreshes restore your session and current page. If PHP-FPM has an opcode cache with timestamp checks disabled, reload PHP-FPM so it reads the updated PHP files.
+Open `http://YOUR-SERVER/dashboard/` and use **Ctrl+Shift+R** once. The footer and `/health` should report **1.1.8**. Refreshes restore your session and current page. If upgrading from before 1.1.6, sign in once to renew the session. If PHP-FPM has an opcode cache with timestamp checks disabled, reload PHP-FPM so it reads the updated PHP files.
 
 ## Android app and public download folder
 
 The sidebar's **Latest Android APK** link points to:
 
 ```text
-/downloads/AntennaPod-Queue-Sync-3.12.3-3.apk
+/downloads/AntennaPod-Queue-Sync-3.12.3-5.apk
 ```
 
 The installer places the file at:
 
 ```text
-server/public/downloads/AntennaPod-Queue-Sync-3.12.3-3.apk
+server/public/downloads/AntennaPod-Queue-Sync-3.12.3-5.apk
 ```
 
 That is an intentionally public static download; only the app package belongs there. Source archives, configuration, backups, and the update ZIP remain outside the web document root.
 
-Open the sidebar link on your phone and install over the existing **AntennaPod Queue Sync** app. Keep the app installed so Android retains its library and settings. Revision 3 uses the same signing certificate as earlier custom revisions. Android Studio is not needed; Android 6.0 or newer is required.
+Open the sidebar link on your phone and install over the existing **AntennaPod Queue Sync** app. Keep the app installed so Android retains its library and settings. Revision 5 uses the same signing certificate as earlier custom revisions. Android Studio is not needed; Android 6.0 or newer is required.
 
 The custom package is `de.danoeh.antennapod.vonqueue`; it is separate from stock AntennaPod. This is a signed custom debug build, not an upstream Play Store release. Future custom updates must retain the same signing key. The update ZIP includes the corresponding AntennaPod source, patch, build instructions, and GPL license.
 
-Revision 3 provides explicit **Newest first / Oldest first** controls on subscriptions, podcast episode lists, and the queue. Subscription order compares each show's latest episode date. Queue sorting changes the shared queue order on the next synchronization.
+The app provides explicit **Newest first / Oldest first** controls on subscriptions, podcast episode lists, and the queue. Subscription order compares each show's latest episode date. Queue sorting changes the shared queue order automatically.
+
+## Updating Kasts on the desktop
+
+The companion `kasts/` directory includes the release 8 Scratch recipe and all eight patches. The workstation recipe has already been updated. Build/install it on the desktop, then completely quit and reopen Kasts:
+
+```bash
+sudo scratch install kasts -r -n
+```
+
+Release 8 includes the earlier A–Z/Z–A thumbnail-count fix and automatic synchronization on actions. The package source builds successfully; it is not installed by the server installer.
 
 ## Connecting the clients
 
 In **Kasts**, choose Settings → Synchronization → gpodder.net → Log In, enable the custom server option, and enter the server's base URL and sync account. Use the base URL, without `/dashboard/` or `/api/2`. The gpodder.net choice also supports a self-hosted compatible server; the Nextcloud option uses a different protocol.
 
-In **AntennaPod Queue Sync**, choose the gpodder.net synchronization provider, enter the same custom server base URL, and use the same sync account. Select or create a device identity, then synchronize. Install the modified Kasts/AntennaPod versions for shared queue support and live reports.
+In **AntennaPod Queue Sync**, choose the gpodder.net synchronization provider, enter the same custom server base URL, and use the same sync account. Select or create a device identity, then synchronize. Install the modified Kasts/AntennaPod versions for shared queue support and action-triggered playback reports.
 
 ## Changelog
+
+### Website 1.1.8, AntennaPod 3.12.3-vonqueue.5 and Kasts release 8
+
+- Correct synchronization to run on actions rather than idle polling.
+- Remove foreground/background periodic account sync, periodic playback uploads and presence heartbeats.
+- Cancel Android revision 4's already-scheduled periodic sync job when upgrading.
+- Periodic RSS refreshes no longer trigger account sync; manual refresh still does.
+- Preserve automatic sync on queue edits, subscriptions, play/pause/seek/completion and played-state changes, with retries for pending failed actions.
+- Devices displays last-reported playback rather than implying continuously live status.
+- Idle devices receive remote changes on their next action, opening or manual sync. Update every client to remove the previous timers.
+
+
+### Website 1.1.7, AntennaPod 3.12.3-vonqueue.4 and Kasts release 7
+
+- Automatic outgoing sync for subscriptions, all queue edits and shared playback changes.
+- Incoming checks about every 30 seconds while the apps are open; Android also schedules background work and checks during playback.
+- Queue-only Android edits now schedule synchronization, including drag moves and newest/oldest sorting.
+- Kasts quick sync now schedules a full bidirectional library exchange, including the shared queue.
+- Preserve changes made during an upload, coalesce pending jobs, suppress remote queue feedback, and retry failures.
+- Website sidebar publishes APK revision 4, using the existing signing certificate; no database migration.
+- Kasts release 6 count fix is included: alphabetical subscription sorting keeps the unread badge.
+
 
 ### Website 1.1.6
 

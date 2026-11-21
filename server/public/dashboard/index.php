@@ -11,8 +11,8 @@ header('Cache-Control: no-store');
   <meta name="referrer" content="no-referrer">
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; connect-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: http: https:; media-src 'self' http: https:; base-uri 'none'; form-action 'none'">
   <title>Podcast Sync · Listen together</title>
-  <link rel="stylesheet" href="app.css?v=1.1.6">
-  <script src="app.js?v=1.1.6" defer></script>
+  <link rel="stylesheet" href="app.css?v=1.1.8">
+  <script src="app.js?v=1.1.8" defer></script>
 </head>
 <body>
 <div class="shell">
@@ -28,8 +28,8 @@ header('Cache-Control: no-store');
       <button type="button" data-view="activity" class="nav-item"><span aria-hidden="true">◷</span>Playback history</button>
     </nav>
     <div class="sidebar-bottom">
-      <a id="latest-apk" class="app-download" href="../downloads/AntennaPod-Queue-Sync-3.12.3-3.apk" download>
-        <span>Latest Android APK</span><strong>3.12.3-vonqueue.3</strong><span class="app-download-note">AntennaPod Queue Sync · Download</span>
+      <a id="latest-apk" class="app-download" href="../downloads/AntennaPod-Queue-Sync-3.12.3-5.apk" download>
+        <span>Latest Android APK</span><strong>3.12.3-vonqueue.5</strong><span class="app-download-note">AntennaPod Queue Sync · Download</span>
       </a>
       <div class="sidebar-footer">Your server. Your library.<span class="muted">Listen here. Pick up anywhere.</span></div>
     </div>
@@ -61,7 +61,7 @@ header('Cache-Control: no-store');
       <div id="overview-view">
         <div class="overview-grid"><section class="surface"><div class="section-heading"><div><span class="eyebrow">READY WHEN YOU ARE</span><h2>Your listening queue</h2></div><button class="text-button" type="button" data-view="queue">View all</button></div><div id="queue-preview"></div></section><section class="surface"><div class="section-heading"><div><span class="eyebrow">LAST HEARD</span><h2>Recent playback</h2></div><button class="text-button" type="button" data-view="activity">View all</button></div><div id="activity-preview"></div></section></div>
         <section class="library-preview"><div class="section-heading"><h2>Find your next listen</h2><button class="text-button" type="button" data-view="subscriptions">All subscriptions</button></div><div id="feed-preview" class="feed-grid"></div></section>
-        <div class="sync-note"><strong>One account. One shared library.</strong><p>Web changes save to your server immediately. Kasts and AntennaPod receive them on their next sync. This page checks for changes every 30 seconds while visible.</p></div>
+        <div class="sync-note"><strong>One account. One shared library.</strong><p>Changes sync when you act: edit the queue or subscriptions, play, pause, seek, finish an episode, or refresh. Idle devices do not poll. Other devices receive updates on their next action, opening or manual sync.</p></div>
       </div>
       <section id="account-view" class="surface account-settings" hidden>
         <h2>Change password</h2>
@@ -86,7 +86,7 @@ header('Cache-Control: no-store');
           <div class="load-more-wrap"><button id="load-more" class="secondary-button" type="button" hidden>Show more</button></div>
         </div>
       </section>
-      <footer class="page-footer">Podcast Sync 1.1.6 <span aria-hidden="true">·</span> Audio streams directly from its publisher</footer>
+      <footer class="page-footer">Podcast Sync 1.1.8 <span aria-hidden="true">·</span> Audio streams directly from its publisher</footer>
     </section>
     <div id="status" class="sr-only" role="status" aria-live="polite"></div>
   </main>

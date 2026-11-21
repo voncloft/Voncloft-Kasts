@@ -382,7 +382,7 @@ final class Server {
             if ($method!=='GET') { throw new HttpError(405,'Method not allowed.'); }
             require_once __DIR__.'/PodcastLibrary.php';
             try { $transport=PodcastLibrary::transport(); } catch (HttpError $e) { $transport='unavailable'; }
-            self::output(['service'=>'Von Podcast Sync','version'=>'1.1.6','api'=>'gpodder-2','queue_protocol'=>'vonqueue-v1','web_player'=>true,'presence_protocol'=>'vonpresence-v1',
+            self::output(['service'=>'Von Podcast Sync','version'=>'1.1.8','api'=>'gpodder-2','queue_protocol'=>'vonqueue-v1','web_player'=>true,'presence_protocol'=>'vonpresence-v1',
                 'feed_transport'=>$transport,'feed_parser'=>class_exists('DOMDocument')?'DOM':'unavailable']);
         }
         if ($path==='/api/2/session.json') {

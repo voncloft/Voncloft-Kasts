@@ -3,7 +3,7 @@ const $ = id => document.getElementById(id);
 const api = new URL('../api/2/', new URL('.', location.href));
 const device = 'web-player';
 const titles = {overview:'Your library, together.',subscriptions:'Your subscriptions.',discover:'Find your next favorite.',queue:'Up next.',devices:'Your connected apps.',activity:'Your playback records.',account:'Account settings.',podcast:'Episodes.'};
-const subtitles = {overview:'A little of everything you love listening to.',subscriptions:'Choose a podcast to browse its episodes.',discover:'Search for podcasts and add them to your shared library.',queue:'Your shared queue, in the order it will play.',devices:'See what is playing across your connected apps.',activity:'The latest saved episode updates from your apps.',account:'Manage the password for your sync account.',podcast:'Browse, listen, and add something to your queue.'};
+const subtitles = {overview:'A little of everything you love listening to.',subscriptions:'Choose a podcast to browse its episodes.',discover:'Search for podcasts and add them to your shared library.',queue:'Your shared queue, in the order it will play.',devices:'Playback state last reported by your connected apps.',activity:'The latest saved episode updates from your apps.',account:'Manage the password for your sync account.',podcast:'Browse, listen, and add something to your queue.'};
 let authorization='', account='', data=null, view='overview', selectedFeed='', limit=40, epoch=0, busy=0, syncChain=Promise.resolve(), loading=false;
 let queueDrag=null,accountCSRF='',accountGeneration=0,accountSaving=false;
 let navigationDepth=0,focusedEpisode=null,detailQuery='';
@@ -31,18 +31,18 @@ function presenceRow(player){
   main.append(element('span','row-title',player.caption||player.client||'Player'));
   if(player.item)main.append(element('span','row-subtitle',episodeName(player.item)),element('span','small muted',player.item.podcast_title||feedName(player.item.podcast)));
   const status={playing:'Playing',paused:'Paused',stopped:'Stopped'}[player.state]||'Unknown';
-  const info=element('div','presence-status');info.append(element('span','tag'+(live?'':' stale'),live?status:'Last reported '+status.toLowerCase()));
+  const info=element('div','presence-status');info.append(element('span','tag'+(live?'':' stale'),'Last reported '+status.toLowerCase()));
   if(player.item)info.append(element('span','small muted',position(player.position)+(player.duration?' / '+position(player.duration):'')));
   info.append(element('span','small muted',age<60?`Reported ${Math.floor(age)}s ago`:`Reported ${Math.floor(age/60)}m ago`));
-  if(!live)info.append(element('span','small muted','Offline or no longer reporting'));
+  if(!live)info.append(element('span','small muted','No newer playback action reported'));
   row.append(main,info);return row;
 }
 function renderDevices(needle){
   const players=livePlayers.filter(x=>(x.caption+' '+x.client+' '+x.item?.title+' '+x.item?.podcast_title).toLowerCase().includes(needle));
   const devices=data.devices.filter(x=>(x.caption+' '+x.id+' '+x.type).toLowerCase().includes(needle));
-  $('list-note').textContent='Live players report about every 15 seconds. Reports expire after 90 seconds without an update. Apps can share a sync identity and still appear as separate players.';
+  $('list-note').textContent='Playback reports update on actions, not a timer. Open this page or choose Refresh to load the latest reports. A report does not prove a device is still playing or online.';
   $('result-count').textContent=`${number(players.length)} players · ${number(devices.length)} sync identities`;$('load-more').hidden=true;
-  const rows=[element('h2','device-section','Live players')];
+  const rows=[element('h2','device-section','Last reported playback')];
   if(presenceError)rows.push(element('p','presence-warning error-text',presenceError));
   rows.push(...(players.length?players.map(presenceRow):[empty('No player reports yet. Start playback in the website or an updated Kasts/AntennaPod client.')]));
   rows.push(element('h2','device-section','Registered sync identities'),...devices.map(deviceRow));
@@ -348,13 +348,13 @@ async function refreshData(initial=false,quiet=false){
   catch(error){if(token!==epoch)return;if(initial){authorization='';$('login-error').textContent=error.message;$('login-error').hidden=false;}else showError(error.message+' The last loaded library is still shown.');}
   finally{if(token===epoch){loading=false;$('sign-in').disabled=false;$('sign-in').textContent='Open my library';}}
 }
-async function editQueue(transform,message){const token=epoch;try{await serial(async()=>{const items=transform(data.queue.map(queueItem));const result=await request(userPath('queue','/'+device),{base_revision:data.revision,items});data.queue=result.items;data.revision=result.revision;render();notice(message+' Saved to server; sync your other apps to receive it.');});return token===epoch;}catch(error){if(token!==epoch)return false;showError('Queue was not confirmed saved. '+error.message+' Refresh before retrying.');return false;}}
+async function editQueue(transform,message){const token=epoch;try{await serial(async()=>{const items=transform(data.queue.map(queueItem));const result=await request(userPath('queue','/'+device),{base_revision:data.revision,items});data.queue=result.items;data.revision=result.revision;render();notice(message+' Saved to server; other apps receive it on their next action or manual sync.');});if(token===epoch)refreshData(false,true);return token===epoch;}catch(error){if(token!==epoch)return false;showError('Queue was not confirmed saved. '+error.message+' Refresh before retrying.');return false;}}
 function toggleQueue(item){if(inQueue(item))return removeQueue(item);return editQueue(items=>items.some(x=>matching(x,item))?items:[...items,queueItem(item)],'Episode added.');}
 function removeQueue(item){return editQueue(items=>items.filter(x=>!matching(x,item)),'Episode removed from queue.');}
 function moveQueue(item,offset){return editQueue(items=>{const from=items.findIndex(x=>matching(x,item)),to=from+offset;if(from>=0&&to>=0&&to<items.length)[items[from],items[to]]=[items[to],items[from]];return items;},'Queue reordered.');}
 function confirmAction(title,message,label){const dialog=$('confirm-dialog');$('confirm-title').textContent=title;$('confirm-message').textContent=message;$('confirm-button').textContent=label;dialog.returnValue='cancel';dialog.showModal();return new Promise(resolve=>dialog.addEventListener('close',()=>resolve(dialog.returnValue==='confirm'),{once:true}));}
-async function subscribe(url,hint){const token=epoch;url=safeUrl(url);if(!url){showError('Enter a valid HTTP or HTTPS podcast feed URL.');return;}try{await serial(async()=>{await request(userPath('subscriptions','/'+device),{add:[url],remove:[]});if(!data.subscriptions.includes(url))data.subscriptions.push(url);if(hint&&!metadata.has(url))metadata.set(url,{title:hint.title,image:hint.image});$('feed-url').value='';render();notice('Subscribed. Sync your other apps to add this podcast there.');});if(token!==epoch)return;openPodcast(url);}catch(error){if(token===epoch)showError(error.message);}}
-async function unsubscribe(url){const token=epoch;if(!await confirmAction('Unsubscribe from this podcast?',feedName(url)+' will be removed from your shared subscriptions. Episodes already queued stay in the queue.','Unsubscribe')||token!==epoch)return;try{await serial(async()=>{await request(userPath('subscriptions','/'+device),{add:[],remove:[url]});data.subscriptions=data.subscriptions.filter(x=>x!==url);changeView('subscriptions');render();notice('Unsubscribed. Sync your other apps to receive the change.');});}catch(error){showError('Could not confirm the subscription change. '+error.message);}}
+async function subscribe(url,hint){const token=epoch;url=safeUrl(url);if(!url){showError('Enter a valid HTTP or HTTPS podcast feed URL.');return;}try{await serial(async()=>{await request(userPath('subscriptions','/'+device),{add:[url],remove:[]});if(!data.subscriptions.includes(url))data.subscriptions.push(url);if(hint&&!metadata.has(url))metadata.set(url,{title:hint.title,image:hint.image});$('feed-url').value='';render();notice('Subscribed. Other apps receive this podcast on their next action or manual sync.');});if(token!==epoch)return;refreshData(false,true);openPodcast(url);}catch(error){if(token===epoch)showError(error.message);}}
+async function unsubscribe(url){const token=epoch;if(!await confirmAction('Unsubscribe from this podcast?',feedName(url)+' will be removed from your shared subscriptions. Episodes already queued stay in the queue.','Unsubscribe')||token!==epoch)return;try{await serial(async()=>{await request(userPath('subscriptions','/'+device),{add:[],remove:[url]});data.subscriptions=data.subscriptions.filter(x=>x!==url);changeView('subscriptions');render();notice('Unsubscribed. Other apps receive the change on their next action or manual sync.');});if(token===epoch)refreshData(false,true);}catch(error){showError('Could not confirm the subscription change. '+error.message);}}
 async function searchDirectory(){const term=$('discover-query').value.trim();if(term.length<2)return;const token=epoch,searchToken=++discoveryRequest;$('discover-submit').disabled=true;$('discover-error').hidden=true;try{const result=await request(userPath('discover')+'?q='+encodeURIComponent(term));if(token!==epoch||searchToken!==discoveryRequest)return;discoverResults=result.results;discoverySearched=true;limit=40;$('search').value='';renderList();rememberView();}catch(error){if(token===epoch&&searchToken===discoveryRequest){$('discover-error').textContent=error.message;$('discover-error').hidden=false;}}finally{if(token===epoch&&searchToken===discoveryRequest)$('discover-submit').disabled=false;}}
 function registerPlayer(){return request(userPath('devices','/'+device),{caption:'Podcast Sync web player',type:'other'}).then(()=>{if(data&&!data.devices.some(x=>x.id===device)){data.devices.push({id:device,caption:'Podcast Sync web player',type:'other'});renderOverview();}});}
 function setPlayerError(text){$('player-error').textContent=text;$('player-error').hidden=!text;}
@@ -370,11 +370,10 @@ function playEpisode(item,context=null,advancing=false){if(playing&&matching(pla
   startAudio();
   registerPlayer().catch(error=>showError('Could not register the web player. '+error.message));render();
 }
-audio.addEventListener('loadedmetadata',()=>{ready=true;if(resumeAt>0&&Number.isFinite(audio.duration)&&resumeAt<audio.duration-1)audio.currentTime=resumeAt;else if(resumeAt>0&&!Number.isFinite(audio.duration))audio.currentTime=resumeAt;started=Math.floor(audio.currentTime||0);$('progress-status').textContent=pendingProgress.size?'Saving progress…':'Progress saves every 15 seconds';});
+audio.addEventListener('loadedmetadata',()=>{ready=true;if(resumeAt>0&&Number.isFinite(audio.duration)&&resumeAt<audio.duration-1)audio.currentTime=resumeAt;else if(resumeAt>0&&!Number.isFinite(audio.duration))audio.currentTime=resumeAt;started=Math.floor(audio.currentTime||0);$('progress-status').textContent=pendingProgress.size?'Saving progress…':'Progress saves on pause, seek or completion';});
 audio.addEventListener('play',()=>{if(ready&&playing){const latest=playback(playing);if(latest&&eventTime(latest.timestamp)>appliedActionTime&&!pendingProgress.has(playing.podcast+'\n'+playing.episode)){const target=latest.total>0&&latest.position>=latest.total?0:latest.position;if(Number.isFinite(target))audio.currentTime=target;appliedActionTime=eventTime(latest.timestamp);started=target;}}played=true;setPlayerError('');render();reportPresence();});
-audio.addEventListener('pause',()=>{queueProgress();render();reportPresence();});
-audio.addEventListener('seeked',()=>{queueProgress();reportPresence();});
-audio.addEventListener('timeupdate',()=>{if(ready&&played&&!audio.paused&&Date.now()-lastAttempt>=15000)queueProgress();});
+audio.addEventListener('pause',()=>{const token=epoch;Promise.resolve(queueProgress()).then(()=>{if(token===epoch&&data)refreshData(false,true);});render();reportPresence();});
+audio.addEventListener('seeked',()=>{const token=epoch;Promise.resolve(queueProgress()).then(()=>{if(token===epoch&&data)refreshData(false,true);});reportPresence();});
 audio.addEventListener('error',()=>{if(playing)setPlayerError('The publisher audio could not be loaded. Try Play again or choose another episode. Your queue has not changed.');});
 audio.addEventListener('ended',()=>{
   if(!playing||!data)return;
@@ -421,9 +420,6 @@ $('load-more').addEventListener('click',()=>{limit+=40;renderList();rememberView
 $('subscribe-form').addEventListener('submit',event=>{event.preventDefault();subscribe($('feed-url').value.trim());});
 $('discover-form').addEventListener('submit',event=>{event.preventDefault();searchDirectory();});
 $('clear-queue').addEventListener('click',async()=>{if(!data.queue.length)return;const token=epoch,shown=data.queue.map(queueItem);if(await confirmAction('Clear your shared queue?',`Remove these ${shown.length} episodes from the queue on all devices? Subscriptions and listening progress stay saved.`,'Clear queue')&&token===epoch)editQueue(items=>items.filter(x=>!shown.some(y=>matching(x,y))),'Queue cleared.');});
-setInterval(()=>{if(data&&!document.hidden)refreshData(false,true);if(account&&pendingProgress.size)flushProgress();},30000);
-setInterval(()=>{if(data)reportPresence();},15000);
-setInterval(()=>{if(data&&view==='devices'&&!document.hidden)loadPresence();},10000);
 $('server-name').textContent=location.host;
 
 function clearAccountSettings(){
